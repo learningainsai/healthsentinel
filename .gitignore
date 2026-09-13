@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/chroma/
+data/metrics.db
+logs/*.jsonl
+docs/html/
+.DS_Store
+uv.lock
+*.egg-info/
+.agents/
+.claude/

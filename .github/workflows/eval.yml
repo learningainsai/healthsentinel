@@ -1,0 +1,42 @@
+name: healthsentinel-eval
+
+on:
+  push:
+    paths:
+      - "healthsentinel/**"
+  pull_request:
+    paths:
+      - "healthsentinel/**"
+
+defaults:
+  run:
+    working-directory: healthsentinel
+
+jobs:
+  # Always runs — deterministic guardrail checks, no API key or network needed.
+  # This gate must pass for any merge (review §8).
+  offline-guardrails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        run: uv sync
+      - name: Run offline guardrail evals (gates CI)
+        run: uv run python eval/run_eval.py --offline
+
+  # Full end-to-end suite (RAG + graph + adversarial) — needs the model key.
+  # Runs only when the secret is configured; failing this blocks the merge too.
+  full-eval:
+    runs-on: ubuntu-latest
+    needs: offline-guardrails
+    if: ${{ secrets.OPENAI_API_KEY != '' }}
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        run: uv sync
+      - name: Run full eval suite (gates CI)
+        run: uv run python eval/run_eval.py
