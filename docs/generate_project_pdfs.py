@@ -916,16 +916,16 @@ def architecture_flow_html() -> str:
   <div class="body-wrap">
     <div class="section-label"><span class="dot dot-teal"></span>Request lifecycle</div>
     {lifecycle}
-  </div>
-</div>
-<div class="page">
-  <div class="body-wrap" style="padding-top:12mm;">
+
     <div class="section-label"><span class="dot dot-rose"></span>Two human-in-the-loop entry points</div>
     {hitl_diagram}
 
     <div class="section-label"><span class="dot dot-emerald"></span>Data stores &amp; persistence</div>
     <div class="grid-4">{stores_html}</div>
-
+  </div>
+</div>
+<div class="page">
+  <div class="body-wrap" style="padding-top:12mm;">
     <div class="section-label"><span class="dot dot-amber"></span>RAG retrieval flow</div>
     {rag_flow}
 
