@@ -23,6 +23,14 @@ class HealthState(TypedDict, total=False):
     lab_report_text: str | None       # extracted text from an uploaded PDF/txt/md lab report
     lab_report_image_b64: str | None  # uploaded lab report photo, if not text-extractable
 
+    # --- day-end intake (see agents/intake_agent.py) --------------------------
+    staged_attachments: list[dict]    # category-tagged file attachments from the staging queue (staging.py)
+    staged_notes: list[str]           # free-text notes from the staging queue, multi-label classified below
+    activity_notes: Annotated[list[str], operator.add]  # extra context merged alongside simulated iWatch data
+    sms_notes: Annotated[list[str], operator.add]        # extra context merged alongside simulated SMS signals
+    calendar_notes: Annotated[list[str], operator.add]   # extra context merged alongside simulated calendar data
+    intake_result: dict               # {"considered": [...], "missing": [...]} — surfaced in the final report
+
     # --- per-agent outputs -----------------------------------------------------
     vision_result: dict
     nutrition_result: dict
@@ -36,6 +44,7 @@ class HealthState(TypedDict, total=False):
     prediction_result: dict
     recommendation_result: dict
     critic_review: dict
+    insight_notes: list[str]  # advisory-only cross-metric observations (see agents/insight_agent.py) — never gates anything
     verifier_passed: bool
     verifier_issues: Annotated[list[str], operator.add]
 

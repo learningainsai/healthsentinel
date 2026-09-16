@@ -60,6 +60,7 @@ class Paths:
     logs_dir: Path
     metrics_db_path: Path
     sms_dir: Path
+    staging_dir: Path
 
     @staticmethod
     def from_env() -> "Paths":
@@ -79,6 +80,7 @@ class Paths:
             logs_dir=PROJECT_ROOT / "logs",
             metrics_db_path=metrics_db_path,
             sms_dir=PROJECT_ROOT / "data" / "sms",
+            staging_dir=PROJECT_ROOT / "data" / "staging",
         )
 
 
@@ -86,6 +88,7 @@ MODELS = ModelRouter.from_env()
 PATHS = Paths.from_env()
 PATHS.logs_dir.mkdir(parents=True, exist_ok=True)
 PATHS.metrics_db_path.parent.mkdir(parents=True, exist_ok=True)
+PATHS.staging_dir.mkdir(parents=True, exist_ok=True)
 
 # --- Guardrail thresholds (from health-sentinel-guardrails.md) -------------
 CONFIDENCE_DISPLAY = 0.80         # >0.80 -> display with full recommendation
@@ -125,6 +128,13 @@ SLEEP_POOR_HOURS = 5.5
 SLEEP_ESCALATION_DAY_FRACTION = 0.5
 
 RAPID_WEIGHT_CHANGE_PCT = 5.0     # +/- 5% change within the trend window -> flag
+
+# --- Advisory-only LLM passes (never gate a block/escalation by themselves) --
+# These thresholds are the deterministic decision boundary applied to an LLM's
+# output — the LLM proposes, code still decides (review: additive/normalizer
+# patterns only, never a replacement for an authoritative check).
+ALLERGY_NORMALIZATION_MIN_CONFIDENCE = 0.6   # below this, free-text term is kept literal-only, not mapped to a category
+REJECTED_RECOMMENDATION_SIMILARITY_THRESHOLD = 0.85  # cosine similarity to an already-rejected title
 
 # --- Cost controls (review §9) ---------------------------------------------
 # Hard per-run spend cap; a run that reaches it short-circuits to a degraded

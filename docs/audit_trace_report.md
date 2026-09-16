@@ -1,9 +1,11 @@
 # Health Sentinel — Traceability Report
 
-_Generated 2026-09-13T03:46:31.735940+00:00 — most recent 200 audit event(s), newest first._
+_Generated 2026-09-16T11:20:02.290663+00:00 — most recent 200 audit event(s), newest first._
 
 | timestamp | run_id | agent | status | confidence | severity | latency_ms | cost_usd |
 |---|---|---|---|---|---|---|---|
+| 2026-09-13T05:46:12.948862+00:00 | hs-dfd74dcf | rate_limit_gate | blocked | None | None | 0 | None |
+| 2026-09-13T05:46:12.945855+00:00 | hs-dfd74dcf | consent_gate | success | None | None | 0 | None |
 | 2026-09-13T03:46:31.730239+00:00 | hs-dfd74dcf | finalize | degraded | None | None | 0 | 0.00930915 |
 | 2026-09-13T03:46:31.727538+00:00 | hs-dfd74dcf | critic_agent | success | 0.5 | None | 1324 | 0.003713 |
 | 2026-09-13T03:46:30.400270+00:00 | hs-dfd74dcf | guardrail_verifier | success | None | None | 0 | None |
@@ -202,5 +204,3 @@ _Generated 2026-09-13T03:46:31.735940+00:00 — most recent 200 audit event(s), 
 | 2026-09-13T03:08:08.402972+00:00 | eval-f7e71d7b | rate_limit_gate | success | None | None | 0 | None |
 | 2026-09-13T03:08:08.401766+00:00 | eval-f7e71d7b | consent_gate | success | None | None | 0 | None |
 | 2026-09-13T03:08:08.394155+00:00 | eval-0c5bd89e | guardrail_gate | success | 0.8 | MEDIUM | 0 | None |
-| 2026-09-13T03:08:08.392284+00:00 | eval-0c5bd89e | prediction_agent | success | 0.92 | MEDIUM | 2714 | 0.005232 |
-| 2026-09-13T03:08:05.676093+00:00 | eval-0c5bd89e | trend_agent | success | None | None | 8 | None |

@@ -11,3 +11,6 @@ uv.lock
 *.egg-info/
 .agents/
 .claude/
+
+# Day-end intake queue — runtime data, not source
+data/staging/

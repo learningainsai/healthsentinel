@@ -23,8 +23,32 @@ from ..guardrails.hallucination import (
 from ..guardrails.medical import blocked_allergen_hits
 from ..llm import call_structured
 from ..logging_utils import log_event
-from ..prompts import RECOMMENDATION
-from ..schemas import RecommendationResult
+from ..memory.store import GLOBAL_STORE, is_rejected_semantic
+from ..prompts import ALLERGEN_SCAN, RECOMMENDATION
+from ..schemas import AllergenScanResult, RecommendationResult
+
+
+def _llm_allergen_recall(recommendations, allergies: list[str], run_id: str | None) -> dict[str, list[str]]:
+    """Advisory-only additional allergen recall pass (review: this only ever
+    widens the set of allergen hits — the deterministic `blocked_allergen_hits`
+    keyword/synonym check still runs independently and either one alone is
+    enough to block a recommendation). Skipped entirely when there's nothing
+    to check, to avoid a needless LLM call."""
+    if not allergies or not recommendations:
+        return {}
+    items_text = "\n".join(f"- {r.title}: {r.detail}" for r in recommendations)
+    try:
+        call = call_structured(
+            "cheap", AllergenScanResult,
+            [("system", ALLERGEN_SCAN.text),
+             ("human", f"User's declared allergies: {allergies}\n\nRecommendations:\n{items_text}")],
+            run_id=run_id, prompt_version=ALLERGEN_SCAN.version,
+        )
+        return {item.title: item.possible_allergens for item in call.parsed.items}
+    except Exception:
+        # Fail-safe: an errored advisory scan falls back to the deterministic
+        # check alone rather than blocking (or trusting) anything on its own.
+        return {}
 
 
 def recommendation_agent(state: dict) -> dict:
@@ -50,12 +74,20 @@ def recommendation_agent(state: dict) -> dict:
         )
         result: RecommendationResult = call.parsed
 
+        allergies_l = {a.strip().lower() for a in allergies}
+        llm_flags_by_title = _llm_allergen_recall(result.recommendations, allergies, run_id)
+
         flags: list[str] = []
         kept = []
         for rec in result.recommendations:
             full_text = f"{rec.title} {rec.detail}"
 
-            allergen_hits = blocked_allergen_hits(full_text, allergies)
+            deterministic_hits = blocked_allergen_hits(full_text, allergies)
+            # Only allergens the user actually declared — the LLM cannot expand
+            # the blocked set beyond what's already in `allergies` (review: an
+            # advisory pass may add recall, never a new category to block on).
+            llm_hits = [a for a in llm_flags_by_title.get(rec.title, []) if a.strip().lower() in allergies_l]
+            allergen_hits = sorted(set(deterministic_hits) | set(llm_hits))
             if allergen_hits:
                 flags.append(f"BLOCKED_recommendation_allergen_{allergen_hits}: {rec.title}")
                 continue
@@ -63,6 +95,10 @@ def recommendation_agent(state: dict) -> dict:
             rejection = reject_unusual_recommendation(full_text)
             if rejection:
                 flags.append(f"BLOCKED_recommendation: {rec.title} — {rejection}")
+                continue
+
+            if is_rejected_semantic(GLOBAL_STORE, user_id, rec.title):
+                flags.append(f"SUPPRESSED_recommendation_previously_rejected_similar: {rec.title}")
                 continue
 
             kept.append(rec)

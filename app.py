@@ -23,9 +23,10 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 load_dotenv(PROJECT_ROOT / ".env")
 
 from healthsentinel import config as hs_config  # noqa: E402
-from healthsentinel import metrics_store, reporting  # noqa: E402
+from healthsentinel import metrics_store, reporting, staging  # noqa: E402
+from healthsentinel.allergy_normalization import normalize_free_text_term  # noqa: E402
 from healthsentinel.graph import GLOBAL_STORE, build_graph  # noqa: E402
-from healthsentinel.guardrails.medical import MEDICAL_DISCLAIMER  # noqa: E402
+from healthsentinel.guardrails.medical import KNOWN_ALLERGY_CATEGORIES, MEDICAL_DISCLAIMER  # noqa: E402
 from healthsentinel.memory import store as mem  # noqa: E402
 from healthsentinel.rag.vectorstore import build_index, delete_user_documents  # noqa: E402
 from healthsentinel.sms_parser import parse_sms_messages  # noqa: E402
@@ -138,6 +139,12 @@ with p2:
     conditions = st.multiselect("Known conditions", ["prediabetes", "hypertension"], default=PROFILES[user_id]["conditions"])
 with p3:
     allergies = st.multiselect("Allergies", ["peanuts", "shellfish", "soy", "gluten", "dairy"], default=PROFILES[user_id]["allergies"])
+free_text_allergy = st.text_input(
+    "Other allergy/condition not listed above (optional, free text)",
+    placeholder="e.g. prawns, groundnuts...",
+    help="Normalized to a known category by an LLM when you run the analysis — the raw term you type "
+         "is always also checked literally, even if normalization fails or is unsure.",
+)
 
 with st.expander("Data controls (privacy)"):
     st.caption("Right-to-be-forgotten: remove this profile's medical document chunks and historic metrics.")
@@ -149,44 +156,65 @@ with st.expander("Data controls (privacy)"):
         removed = metrics_store.delete_user_metrics(user_id)
         st.success(f"Removed {removed} historic reading(s) for '{user_id}'.")
 
-# --- meal input ---------------------------------------------------------------
-st.subheader("3. Today's meal")
-image_file = st.file_uploader("Upload a meal photo (optional)", type=["jpg", "jpeg", "png"])
-meal_text = st.text_input("Or describe the meal in text", placeholder="grilled chicken breast, brown rice, steamed broccoli")
-medical_query = st.text_input(
-    "Medical-document question (optional — RAG over data/medical_docs/)",
-    placeholder="What relevant conditions or lab flags should inform today's coaching?",
-)
+# --- day-end intake queue ------------------------------------------------------
+# No cron/scheduler: the user stages documents/notes at their own pace during
+# the day, then presses "Run day-end analysis" whenever they want — a manual
+# trigger, not a scheduled job. The queue is disk-persisted (staging.py) so it
+# survives a page refresh, and intake_agent (LangGraph node) classifies/routes
+# everything staged into the existing per-agent input fields on the next run.
+st.subheader("3. Today's documents & notes")
+CATEGORY_LABELS = {
+    "meal": "Meal", "health_report": "Health report", "activity": "Activity report",
+    "lab": "Lab report", "sms": "SMS report", "calendar": "Calendar",
+}
+dc1, dc2 = st.columns([1, 2])
+with dc1:
+    category = st.selectbox("Document category", list(CATEGORY_LABELS.keys()), format_func=lambda k: CATEGORY_LABELS[k])
+    attach_file = st.file_uploader(
+        "Attach a file", type=["pdf", "txt", "md", "png", "jpg", "jpeg"], key="staging_attach_uploader",
+    )
+    if st.button("➕ Add to today's queue", disabled=attach_file is None):
+        staging.add_attachment(
+            user_id, category, attach_file.name,
+            base64.b64encode(attach_file.getvalue()).decode(),
+            attach_file.type or "application/octet-stream",
+        )
+        st.rerun()
+with dc2:
+    note_text = st.text_area(
+        "Or describe anything in plain text",
+        placeholder="e.g. 'grilled chicken and rice for lunch, ran 5k this morning, glucose reading was 140'",
+        key="staging_note_text",
+    )
+    st.caption(
+        "A classifier agent reads this at run time and routes each part to the right pipeline "
+        "agent (meal, activity, lab, medical, SMS, calendar) — no need to pick a category."
+    )
+    if st.button("➕ Add note to today's queue", disabled=not note_text.strip()):
+        staging.add_note(user_id, note_text.strip())
+        st.rerun()
 
-st.subheader("3b. Lab report (optional)")
-st.caption(
-    "Upload a lab report to build glucose/weight history for trend reasoning "
-    "(e.g. 'glucose has been above range for 3 months — consult a doctor'). "
-    "Only glucose_mgdl and weight_kg are extracted and validated before being stored."
-)
-lab_file = st.file_uploader("Upload a lab report", type=["pdf", "txt", "md", "png", "jpg", "jpeg"], key="lab_report_uploader")
-lab_report_text, lab_report_image_b64 = None, None
-if lab_file is not None:
-    suffix = Path(lab_file.name).suffix.lower()
-    if suffix == ".pdf":
-        from pypdf import PdfReader
-        import io
+staged_items = staging.list_items(user_id)
+if staged_items:
+    st.caption(f"Staged so far today ({len(staged_items)}) — cleared automatically after a successful run:")
+    for item in staged_items:
+        row1, row2 = st.columns([6, 1])
+        if item["kind"] == "attachment":
+            row1.write(f"📎 **{CATEGORY_LABELS.get(item['category'], item['category'])}** — {item['filename']}")
+        else:
+            row1.write(f"📝 {item['text'][:120]}{'...' if len(item['text']) > 120 else ''}")
+        if row2.button("🗑", key=f"remove_staged_{item['id']}"):
+            staging.remove_item(user_id, item["id"])
+            st.rerun()
+else:
+    st.caption("Nothing staged yet today — add a document or note above.")
 
-        reader = PdfReader(io.BytesIO(lab_file.getvalue()))
-        lab_report_text = "\n".join((page.extract_text() or "") for page in reader.pages).strip()
-        if not lab_report_text:
-            st.warning("Could not extract text from this PDF (likely a scanned image) — try uploading a photo instead.")
-    elif suffix in (".txt", ".md"):
-        lab_report_text = lab_file.getvalue().decode("utf-8", errors="ignore")
-    else:
-        lab_report_image_b64 = base64.b64encode(lab_file.getvalue()).decode()
-    st.success(f"Loaded '{lab_file.name}' — will be parsed for glucose/weight when you run the analysis.")
-
-st.subheader("3c. SMS-derived signals (optional)")
+st.subheader("4. Simulated SMS signals (optional)")
 st.caption(
     "Simulated SMS connector: detects meal-timing patterns from food-delivery texts, "
     "gym-subscription payments, and other health-related messages. Review the checkboxes "
-    "below and uncheck anything that doesn't apply — only checked items are used in the analysis."
+    "below and uncheck anything that doesn't apply — only checked items are used in the analysis. "
+    "(Separate from the 'SMS report' document category above, which is for a manually attached file.)"
 )
 sms_confirmed: dict[str, list] = {"meal_timing": [], "gym_subscription": [], "health_related": []}
 if consent_sms:
@@ -214,15 +242,29 @@ if consent_sms:
 else:
     st.caption("SMS connector disabled — enable 'Connect SMS access' above to detect patterns.")
 
-run_clicked = st.button("Run daily analysis", type="primary", disabled=not (tier1_ok and (image_file or meal_text)))
+run_clicked = st.button("Run day-end analysis", type="primary", disabled=not (tier1_ok and staged_items))
 if not tier1_ok:
     st.info("Both Tier 1 checkboxes are required before you can run an analysis.")
+elif not staged_items:
+    st.info("Stage at least one document or note above before running.")
 
 if run_clicked:
     if not has_openai:
         st.error("OPENAI_API_KEY is required. Add it in the sidebar.")
     else:
-        image_b64 = base64.b64encode(image_file.getvalue()).decode() if image_file else None
+        run_id_for_normalization = st.session_state.thread_id
+        effective_allergies = list(allergies)
+        if free_text_allergy.strip():
+            extra_terms = normalize_free_text_term(
+                free_text_allergy, KNOWN_ALLERGY_CATEGORIES, run_id=run_id_for_normalization,
+            )
+            for term in extra_terms:
+                if term not in effective_allergies:
+                    effective_allergies.append(term)
+            if len(extra_terms) > 1:
+                st.caption(f"Mapped '{free_text_allergy}' → also checking as '{extra_terms[1]}'.")
+            else:
+                st.caption(f"Could not confidently map '{free_text_allergy}' to a known category — checking it literally.")
         initial_state = {
             "user_id": user_id,
             "consent": {
@@ -234,12 +276,9 @@ if run_clicked:
                 "tier3_analytics": consent_analytics,
                 "tier4_notifications": consent_notify,
             },
-            "profile": {"is_new_user": is_new_user, "conditions": conditions, "allergies": allergies},
-            "meal_image_b64": image_b64,
-            "meal_text_entry": meal_text or None,
-            "medical_query": medical_query or None,
-            "lab_report_text": lab_report_text,
-            "lab_report_image_b64": lab_report_image_b64,
+            "profile": {"is_new_user": is_new_user, "conditions": conditions, "allergies": effective_allergies},
+            "staged_attachments": [i for i in staged_items if i["kind"] == "attachment"],
+            "staged_notes": [i["text"] for i in staged_items if i["kind"] == "note"],
             "sms_confirmed": sms_confirmed,
         }
         with st.status("Running Health Sentinel pipeline...", expanded=True) as status:
@@ -251,6 +290,10 @@ if run_clicked:
                 else:
                     status.update(label="Analysis complete", state="complete")
                 st.session_state.result = result
+                # Raw staged documents/notes are consumed by intake_agent above
+                # (already checkpointed into the graph run) — only the values
+                # they produced need to persist (metrics_store / RAG index).
+                staging.clear(user_id)
                 reporting.write_report()
                 reporting.print_report()
             except Exception as e:
@@ -298,6 +341,15 @@ if result:
         with left:
             st.subheader("Final report")
             st.markdown(_strip_links(result.get("final_report", "(no report)")))
+
+            if recs:
+                st.caption("Reject a suggestion to stop seeing it (and close semantic rephrasings of it) in future runs:")
+                for i, r in enumerate(recs):
+                    rej_col, label_col = st.columns([1, 5])
+                    if rej_col.button("\U0001F6AB", key=f"reject_rec_{i}_{r['title']}", help="Reject this suggestion"):
+                        mem.reject_recommendation(GLOBAL_STORE, user_id, r["title"])
+                        st.success(f"Rejected '{r['title']}' — it (and close rephrasings) will be suppressed going forward.")
+                    label_col.caption(r["title"])
 
         with right:
             run_status = result.get("run_status", "success")

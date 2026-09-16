@@ -8,22 +8,16 @@ here, since there is no LLM call to schema-validate).
 """
 from __future__ import annotations
 
-import time
-
-from ..faults import Layer, classify_exception
-from ..logging_utils import log_event
+from ..faults import Layer
+from ._connector_helpers import run_connector
 
 
 def sms_agent(state: dict) -> dict:
-    started = time.time()
-    user_id = state["user_id"]
-    run_id = state.get("run_id")
     confirmed = state.get("sms_confirmed") or {}
+    extra_notes = state.get("sms_notes") or []
+    skip = not any(confirmed.get(k) for k in ("meal_timing", "gym_subscription", "health_related")) and not extra_notes
 
-    if not any(confirmed.get(k) for k in ("meal_timing", "gym_subscription", "health_related")):
-        return {"sms_result": {}, "audit_log": []}
-
-    try:
+    def fetch() -> dict:
         meal_timing = confirmed.get("meal_timing", [])
         gym_subscription = confirmed.get("gym_subscription", [])
         health_related = confirmed.get("health_related", [])
@@ -34,20 +28,14 @@ def sms_agent(state: dict) -> dict:
             "has_gym_subscription": bool(gym_subscription),
             "meal_buckets_observed": sorted({m["meal_bucket"] for m in meal_timing}),
         }
-        event = log_event(
-            user_id=user_id, agent="sms_agent",
-            input_summary={"confirmed_counts": {k: len(v) for k, v in confirmed.items()}},
-            decision=result, confidence=1.0, started_at=started, run_id=run_id,
-        )
-        return {"sms_result": result, "audit_log": [event]}
-    except Exception as e:
-        fault = classify_exception(e, layer=Layer.AGENT)
-        event = log_event(
-            user_id=user_id, agent="sms_agent", input_summary={},
-            decision=fault.message, status="error", started_at=started, run_id=run_id, fault=fault,
-        )
-        return {
-            "sms_result": {},
-            "errors": [{"agent": "sms_agent", "fault": fault.to_dict()}],
-            "audit_log": [event],
-        }
+        # Staged free-text/attachment notes (intake_agent) supplement the
+        # simulated SMS inbox — they never replace it.
+        if extra_notes:
+            result["user_reported_notes"] = extra_notes
+        return result
+
+    return run_connector(
+        state=state, agent_name="sms_agent", result_key="sms_result", source="sms_confirmed_ui",
+        layer=Layer.AGENT, fetch=fetch, skip=skip,
+        input_summary={"confirmed_counts": {k: len(v) for k, v in confirmed.items()}},
+    )

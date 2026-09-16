@@ -120,3 +120,52 @@ class CriticReview(BaseModel):
     issues: list[str] = Field(default_factory=list)
     guardrail_score: float = Field(ge=0.0, le=1.0, description="Fraction of guardrail checklist items satisfied")
     summary: str
+
+
+class AllergenScanItem(BaseModel):
+    """Advisory-only additional allergen recall for one recommendation — the
+    deterministic `blocked_allergen_hits` keyword/synonym check still runs
+    independently; this only ever widens the union of hits, never narrows it."""
+    title: str
+    possible_allergens: list[str] = Field(
+        default_factory=list,
+        description="Any of the user's declared allergens that might be present, even if phrased "
+                     "indirectly (e.g. a dish that typically contains it). Only choose from the "
+                     "declared allergy list given — never invent a new allergen.",
+    )
+
+
+class AllergenScanResult(BaseModel):
+    items: list[AllergenScanItem] = Field(default_factory=list)
+
+
+class NormalizedAllergyTerm(BaseModel):
+    """Maps a free-text allergy/condition term to the closest known category —
+    normalization only; the raw term is always also kept for literal matching
+    regardless of this result (review: fail open to inclusion, never exclusion)."""
+    matched_category: str | None = Field(default=None, description="Closest known category, or null if none match well")
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class InsightNote(BaseModel):
+    observation: str = Field(description="A single cross-metric pattern, phrased as a gentle observation, never a diagnosis")
+    based_on: list[str] = Field(default_factory=list, description="Which signals/trends this observation draws from")
+
+
+class InsightResult(BaseModel):
+    """Advisory-only cross-metric pattern spotting (review: can never change
+    severity, guardrail flags, or trigger human review by itself)."""
+    notes: list[InsightNote] = Field(default_factory=list, description="0-2 notable observations; empty if nothing notable")
+
+
+class TextClassification(BaseModel):
+    """Multi-label classification of one free-text staged note (intake_agent).
+    Each field holds the portion of the note relevant to that category,
+    verbatim or lightly summarized — empty string if the note says nothing
+    about that category. A single note may populate more than one field."""
+    meal: str = Field(default="", description="Portion about today's food/meal, empty if none")
+    activity: str = Field(default="", description="Portion about exercise/sleep/steps, empty if none")
+    lab: str = Field(default="", description="Portion about lab/blood-test values, empty if none")
+    medical: str = Field(default="", description="Portion about medical conditions/symptoms/history, empty if none")
+    sms: str = Field(default="", description="Portion about gym/food-delivery/health-related messages, empty if none")
+    calendar: str = Field(default="", description="Portion about schedule/meetings/stress, empty if none")

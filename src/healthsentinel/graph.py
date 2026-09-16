@@ -18,12 +18,13 @@ import time
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
-from langgraph.store.memory import InMemoryStore
 from langgraph.types import interrupt
 
 from .agents.activity_agent import activity_agent
 from .agents.calendar_agent import calendar_agent
 from .agents.critic_agent import critic_agent
+from .agents.insight_agent import insight_agent
+from .agents.intake_agent import intake_agent
 from .agents.lab_report_agent import lab_report_agent
 from .agents.medical_rag_agent import medical_rag_agent
 from .agents.nutrition_agent import nutrition_agent
@@ -37,6 +38,7 @@ from .guardrails.rate_limit import RATE_LIMITER
 from .guardrails.verifier import verify
 from .logging_utils import log_event
 from .memory import store as mem
+from .memory.store import GLOBAL_STORE
 from .state import HealthState
 
 NUTRITIONIST_REVIEW_SLA_HOURS = {"CRITICAL": 2, "HIGH": 8, "MEDIUM": 24, "LOW": 24}
@@ -214,7 +216,13 @@ def finalize(state: HealthState) -> dict:
     critic = state.get("critic_review") or {}
     errors = state.get("errors", [])
 
+    intake = state.get("intake_result") or {}
+
     lines = ["## Daily Health Sentinel Report\n"]
+    if intake.get("considered") or intake.get("missing"):
+        lines.append("### Inputs this run")
+        lines.append(f"- **Considered:** {', '.join(intake.get('considered', [])) or 'none'}")
+        lines.append(f"- **Missing (not staged today):** {', '.join(intake.get('missing', [])) or 'none'}\n")
     if medical.get("refused"):
         lines.append("_Medical document context was unavailable — this report was generated without it._\n")
     if predictions:
@@ -236,6 +244,14 @@ def finalize(state: HealthState) -> dict:
     if critic_flagged:
         critic_issues = "; ".join(critic.get("issues", [])) or critic.get("summary", "unspecified")
         lines.append(f"\n> _Advisory (non-blocking): the reviewer critic flagged items for follow-up: {critic_issues}_")
+
+    # Cross-metric insight notes are advisory-only and clearly labeled as such —
+    # they never influenced severity, guardrail flags, or run_status above.
+    insight_notes = state.get("insight_notes") or []
+    if insight_notes:
+        lines.append("\n### AI observations (advisory, non-clinical)")
+        for note in insight_notes:
+            lines.append(f"- {note}")
 
     report = "\n".join(lines)
     final_report = append_disclaimer(report)
@@ -261,7 +277,6 @@ def finalize(state: HealthState) -> dict:
 
 # --- graph assembly ------------------------------------------------------------
 
-GLOBAL_STORE = InMemoryStore()
 GLOBAL_CHECKPOINTER = MemorySaver()
 
 
@@ -270,6 +285,7 @@ def build_graph():
 
     graph.add_node("consent_gate", consent_gate)
     graph.add_node("rate_limit_gate", rate_limit_gate)
+    graph.add_node("intake_agent", intake_agent)
     graph.add_node("vision_agent", vision_agent)
     graph.add_node("nutrition_agent", nutrition_agent)
     graph.add_node("medical_rag_agent", medical_rag_agent)
@@ -284,14 +300,18 @@ def build_graph():
     graph.add_node("recommendation_agent", recommendation_agent)
     graph.add_node("guardrail_verifier", guardrail_verifier_node)
     graph.add_node("critic_agent", critic_agent)
+    graph.add_node("insight_agent", insight_agent)
     graph.add_node("finalize", finalize)
 
     graph.set_entry_point("consent_gate")
     graph.add_conditional_edges("consent_gate", lambda s: "blocked" if s.get("blocked") else "ok",
                                  {"blocked": END, "ok": "rate_limit_gate"})
     graph.add_conditional_edges("rate_limit_gate", lambda s: "blocked" if s.get("blocked") else "ok",
-                                 {"blocked": END, "ok": "vision_agent"})
+                                 {"blocked": END, "ok": "intake_agent"})
 
+    # intake_agent turns the day-end staging queue into meal_text_entry /
+    # lab_report_text / activity_notes / etc. before any downstream agent runs.
+    graph.add_edge("intake_agent", "vision_agent")
     graph.add_edge("vision_agent", "nutrition_agent")
 
     # Fan-out: the "3 parallel agents" from the guardrails doc (+ sms_agent for
@@ -321,7 +341,8 @@ def build_graph():
     graph.add_edge("recommendation_agent", "guardrail_verifier")
     graph.add_conditional_edges("guardrail_verifier", route_after_verifier,
                                  {"nutritionist_review": "nutritionist_review", "critic_agent": "critic_agent"})
-    graph.add_edge("critic_agent", "finalize")
+    graph.add_edge("critic_agent", "insight_agent")
+    graph.add_edge("insight_agent", "finalize")
     graph.add_edge("finalize", END)
 
     return graph.compile(checkpointer=GLOBAL_CHECKPOINTER, store=GLOBAL_STORE)

@@ -93,3 +93,45 @@ CRITIC = Prompt(
     "- If medical context was unavailable, the report should say so rather than fabricate.\n"
     "Return passed=true only if there are zero violations.",
 )
+
+ALLERGEN_SCAN = Prompt(
+    "allergen_scan", "2026-09-16.1",
+    "You are an advisory allergen-recall net for a nutrition app. You will be given a user's "
+    "declared allergies and a list of recommendation title/detail pairs. For each recommendation, "
+    "flag any of the user's declared allergens that might plausibly be present, INCLUDING indirect "
+    "phrasing, dishes that typically contain the allergen, or misspellings/synonyms a simple keyword "
+    "match could miss. Only ever choose allergens from the user's declared list — never invent one "
+    "that wasn't declared. This is a recall net: when unsure, prefer flagging over staying silent, "
+    "since a downstream deterministic check still runs independently either way.",
+)
+
+ALLERGY_NORMALIZATION = Prompt(
+    "allergy_normalization", "2026-09-16.1",
+    "You map a free-text allergy/condition term to the closest matching category from a fixed list. "
+    "Only return a category from the given list, or null if nothing matches well — never invent a "
+    "new category. Give a confidence 0.0-1.0. The raw free-text term is always kept and checked "
+    "literally regardless of your answer, so it is safe to return null when genuinely unsure.",
+)
+
+INSIGHT = Prompt(
+    "insight", "2026-09-16.1",
+    "You are an advisory, non-clinical pattern-spotting layer for Health Sentinel. You will be given "
+    "deterministic historic trend verdicts (already computed, ground truth — do not recompute or "
+    "contradict them) plus today's nutrition, activity, calendar/stress, and SMS-confirmed lifestyle "
+    "signals. Identify at most 2 notable CROSS-METRIC correlations connecting two or more of these "
+    "signals (e.g. a glucose trend coinciding with late-night food-delivery timing). Never diagnose, "
+    "never suggest medication, never state a new medical conclusion — only note an observed pattern. "
+    "If nothing notable stands out, return an empty list. These are advisory observations only; they "
+    "are shown to the user as-is and never change severity, guardrail flags, or trigger a review.",
+)
+
+INTAKE_CLASSIFIER = Prompt(
+    "intake_classifier", "2026-09-16.1",
+    "You route one free-text note from a health app's day-end intake box to the pipeline "
+    "category/categories it is actually about: meal (food eaten), activity (exercise/sleep/steps), "
+    "lab (blood test / lab values), medical (conditions/symptoms/history), sms (gym payments, "
+    "food-delivery timing, other health-related messages), calendar (schedule/meetings/stress). "
+    "A note can span more than one category — populate every field the note touches, verbatim or "
+    "lightly summarized, and leave a field as an empty string if the note says nothing about it. "
+    "Never invent content that is not in the note.",
+)

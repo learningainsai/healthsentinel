@@ -122,3 +122,8 @@ def blocked_allergen_hits(text: str, allergies: list[str]) -> list[str]:
         if any(term in text_l for term in terms):
             hits.append(a)
     return hits
+
+
+# Fixed taxonomy for free-text allergy normalization (app.py) — an LLM may only
+# ever map a free-text term onto one of these, never invent a new category.
+KNOWN_ALLERGY_CATEGORIES = sorted(ALLERGEN_SYNONYMS.keys())

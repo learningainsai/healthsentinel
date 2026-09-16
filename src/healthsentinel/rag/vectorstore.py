@@ -53,6 +53,25 @@ def build_index(docs_dir: Path | None = None, force: bool = False) -> int:
     return len(chunks)
 
 
+def index_user_document(user_id: str, text: str, source_file: str) -> int:
+    """Index one ad-hoc uploaded "health report" into the same store used by
+    the seeded corpus, tagged with `user_id` so `retrieval.retrieve`'s
+    per-user filter picks it up on the very next run. Persists across runs
+    (unlike the rest of the day-end staging queue, which is discarded)."""
+    from .ingestion import Chunk, _split_sections
+
+    store = get_vectorstore()
+    chunks: list[Chunk] = [
+        Chunk(text=section_text, metadata={"source_file": source_file, "section_path": section_path, "user_id": user_id})
+        for section_path, section_text in _split_sections(text)
+    ] or [Chunk(text=text, metadata={"source_file": source_file, "section_path": "(root)", "user_id": user_id})]
+    ids = [f"{source_file}::{c.metadata['section_path']}::{i}" for i, c in enumerate(chunks)]
+    texts = [c.text for c in chunks]
+    metadatas = [{**c.metadata, "chunk_id": ids[i]} for i, c in enumerate(chunks)]
+    store.add_texts(texts=texts, metadatas=metadatas, ids=ids)
+    return len(chunks)
+
+
 def delete_user_documents(user_id: str) -> int:
     """Remove every chunk belonging to one user (review §6 — consent
     withdrawal / right-to-be-forgotten). Returns the number of chunks deleted."""
