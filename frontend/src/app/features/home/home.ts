@@ -3,6 +3,7 @@ import { DatePipe } from '@angular/common';
 import { Auth } from '../../core/auth';
 import { Consent } from '../../core/consent';
 import { NavBar } from '../../shared/nav-bar/nav-bar';
+import { SymptomInsight } from './symptom-insight/symptom-insight';
 
 interface PipelineStage {
   name: string;
@@ -88,7 +89,7 @@ const PIPELINE_STAGES: PipelineStage[] = [
 ];
 
 @Component({
-  imports: [NavBar, DatePipe],
+  imports: [NavBar, DatePipe, SymptomInsight],
   selector: 'app-home',
   styleUrl: './home.scss',
   templateUrl: './home.html',

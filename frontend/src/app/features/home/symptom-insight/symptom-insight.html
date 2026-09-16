@@ -1,0 +1,77 @@
+<section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+  <div class="flex items-center gap-2">
+    <span class="text-xl">💬</span>
+    <h2 class="text-lg font-semibold text-slate-900">Ask Health Sentinel</h2>
+  </div>
+  <p class="mt-1 text-sm text-slate-500">
+    Describe how you're feeling — we'll cross-check it against your recent sleep, nutrition, and lab
+    data to suggest possible contributing factors.
+  </p>
+
+  <div class="mt-4 flex flex-col gap-3 sm:flex-row">
+    <textarea
+      rows="2"
+      [value]="question()"
+      (input)="question.set($any($event.target).value)"
+      placeholder="e.g. Hey, I feel so dizzy these days. What can be the reason and any suggestions?"
+      class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+    ></textarea>
+    <button
+      type="button"
+      [disabled]="!question().trim() || isAnalyzing()"
+      (click)="onAnalyze()"
+      class="h-10 shrink-0 self-start rounded-lg bg-teal-600 px-4 text-sm font-semibold text-white shadow transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50 sm:self-auto"
+    >
+      {{ isAnalyzing() ? 'Analyzing…' : 'Analyze' }}
+    </button>
+  </div>
+
+  @if (isAnalyzing()) {
+    <p class="mt-4 text-sm text-slate-500">Pulling recent sleep, nutrition, and lab signals…</p>
+  }
+
+  @if (result(); as r) {
+    <div class="mt-5 space-y-4">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="rounded-full px-2.5 py-1 text-xs font-semibold" [class]="severityBadgeClass(r.severity)">
+          {{ r.severity }} severity
+        </span>
+        @if (r.escalated) {
+          <span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+            Would be queued for nutritionist review in the full pipeline
+          </span>
+        }
+      </div>
+
+      <div>
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Possible contributing factors</h3>
+        <ul class="mt-2 space-y-2">
+          @for (factor of r.factors; track factor.label) {
+            <li class="rounded-lg bg-slate-50 p-3 text-sm">
+              <div class="flex flex-wrap items-baseline justify-between gap-2">
+                <span class="font-medium text-slate-800">{{ factor.label }}</span>
+                <span class="text-xs text-slate-400">{{ factor.source }}</span>
+              </div>
+              <p class="mt-1 text-slate-600">{{ factor.detail }}</p>
+            </li>
+          }
+        </ul>
+      </div>
+
+      <div>
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Suggestions</h3>
+        <ul class="mt-2 list-inside list-disc space-y-1 text-sm text-slate-600">
+          @for (suggestion of r.suggestions; track suggestion) {
+            <li>{{ suggestion }}</li>
+          }
+        </ul>
+      </div>
+
+      <p class="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+        ⚠️ Not a medical diagnosis. If symptoms are severe or persistent, contact a healthcare
+        professional. This analysis is a UI prototype — it does not yet call the guardrailed
+        LangGraph backend.
+      </p>
+    </div>
+  }
+</section>
