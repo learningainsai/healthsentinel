@@ -1,5 +1,6 @@
 import { Component, inject, signal } from '@angular/core';
 import { Auth } from '../../../core/auth';
+import { assertSafeForLlm } from '../../../core/prompt-safety';
 
 interface HistoricSnapshot {
   avgSleepHours: number;
@@ -9,15 +10,32 @@ interface HistoricSnapshot {
   stressLoad: 'low' | 'moderate' | 'high';
 }
 
+// Closed set of contributing-factor categories — a real LLM-backed version
+// must select only from this enum (never invent a new category), same
+// pattern as KNOWN_ALLERGY_CATEGORIES on the backend.
+type FactorCategory = 'sleep_debt' | 'low_magnesium' | 'late_night_meals' | 'lab_flag' | 'elevated_stress';
+
+const FACTOR_LABELS: Record<FactorCategory, string> = {
+  sleep_debt: 'Sleep debt',
+  low_magnesium: 'Low dietary magnesium',
+  late_night_meals: 'Frequent late-night meals',
+  lab_flag: 'Lab flag',
+  elevated_stress: 'Elevated stress load',
+};
+
 interface Factor {
-  label: string;
+  category: FactorCategory;
   detail: string;
   source: string;
+  // 'confirmed' = crosses a hard numeric threshold; 'suggestive' = a weaker,
+  // proxy signal (e.g. meeting density standing in for measured stress).
+  confidence: 'confirmed' | 'suggestive';
 }
 
 interface AnalysisResult {
   severity: 'low' | 'medium' | 'high';
   escalated: boolean;
+  insufficientEvidence: boolean;
   factors: Factor[];
   suggestions: string[];
 }
@@ -69,17 +87,30 @@ export class SymptomInsight {
   protected readonly question = signal('');
   protected readonly isAnalyzing = signal(false);
   protected readonly result = signal<AnalysisResult | null>(null);
+  protected readonly refusalIssues = signal<string[] | null>(null);
+
+  protected readonly factorLabels = FACTOR_LABELS;
 
   protected onAnalyze(): void {
-    const text = this.question().trim();
-    if (!text) return;
+    const raw = this.question().trim();
+    if (!raw) return;
 
-    this.isAnalyzing.set(true);
     this.result.set(null);
 
+    // Client-side mirror of guardrails/prompt_injection.py — a UX layer only,
+    // NOT a security boundary (client code is bypassable). The authoritative
+    // check must run server-side once a real backend LLM call exists.
+    const check = assertSafeForLlm(raw);
+    if (!check.safe) {
+      this.refusalIssues.set(check.issues);
+      return;
+    }
+    this.refusalIssues.set(null);
+
+    this.isAnalyzing.set(true);
     // Simulated latency to reflect the real pipeline's retrieval + LLM round trip.
     setTimeout(() => {
-      this.result.set(this.analyze(text));
+      this.result.set(this.analyze(check.cleanText));
       this.isAnalyzing.set(false);
     }, 700);
   }
@@ -91,42 +122,41 @@ export class SymptomInsight {
 
     if (snapshot.avgSleepHours < 6.5) {
       factors.push({
-        label: 'Sleep debt',
+        category: 'sleep_debt',
+        confidence: 'confirmed',
         source: 'Trend agent · iWatch sleep sessions',
         detail: `Averaging ${snapshot.avgSleepHours}h/night over the last 7 days — below the 7–9h range associated with daytime dizziness and fatigue.`,
       });
     }
     if (snapshot.magnesiumPctRda < 80) {
       factors.push({
-        label: 'Low dietary magnesium',
+        category: 'low_magnesium',
+        confidence: 'confirmed',
         source: 'Nutrition agent · meal logs',
         detail: `Estimated at ${snapshot.magnesiumPctRda}% of RDA this week — magnesium deficiency is a known contributor to dizziness and muscle cramps.`,
       });
     }
     if (snapshot.lateNightMealsPerWeek >= 3) {
       factors.push({
-        label: 'Frequent late-night meals',
+        category: 'late_night_meals',
+        confidence: 'confirmed',
         source: 'Nutrition agent + Calendar MCP',
         detail: `${snapshot.lateNightMealsPerWeek} meals logged after 9pm this week — late eating is linked to poorer sleep quality.`,
       });
     }
     for (const flag of snapshot.labFlags) {
-      factors.push({ label: 'Lab flag', source: 'Lab report agent', detail: flag });
+      factors.push({ category: 'lab_flag', confidence: 'confirmed', source: 'Lab report agent', detail: flag });
     }
     if (snapshot.stressLoad === 'high') {
       factors.push({
-        label: 'Elevated stress load',
+        category: 'elevated_stress',
+        confidence: 'suggestive',
         source: 'Calendar MCP + SMS signals',
         detail: 'Back-to-back meetings on most workdays this week — stress can manifest as dizziness or tension headaches.',
       });
     }
-    if (factors.length === 0) {
-      factors.push({
-        label: 'No strong signal found',
-        source: 'Trend agent',
-        detail: 'This week\u2019s sleep, nutrition, and lab data are within your normal ranges. Consider hydration, inner-ear causes, or a clinician visit if symptoms persist.',
-      });
-    }
+
+    const insufficientEvidence = factors.length === 0;
 
     const hasConcerningTerm = CONCERNING_TERMS.some((term) => lowerQuestion.includes(term));
     const severity: AnalysisResult['severity'] =
@@ -137,26 +167,29 @@ export class SymptomInsight {
           : 'low';
 
     const suggestions: string[] = [];
-    if (factors.some((f) => f.label === 'Low dietary magnesium')) {
+    if (factors.some((f) => f.category === 'low_magnesium')) {
       suggestions.push('Add magnesium-rich foods (leafy greens, nuts, whole grains) to a couple of meals this week.');
     }
-    if (factors.some((f) => f.label === 'Sleep debt')) {
+    if (factors.some((f) => f.category === 'sleep_debt')) {
       suggestions.push('Aim for a consistent bedtime and reduce screen time in the hour before sleep.');
     }
-    if (factors.some((f) => f.label === 'Frequent late-night meals')) {
+    if (factors.some((f) => f.category === 'late_night_meals')) {
       suggestions.push('Try shifting your last meal earlier — within 2\u20133 hours of bedtime.');
     }
-    if (factors.some((f) => f.label === 'Elevated stress load')) {
+    if (factors.some((f) => f.category === 'elevated_stress')) {
       suggestions.push('Block a short recovery gap between back-to-back meetings where possible.');
     }
     if (snapshot.labFlags.length > 0) {
       suggestions.push('Discuss the flagged lab reading with your clinician at your next visit.');
     }
     if (suggestions.length === 0) {
-      suggestions.push('Keep logging meals and sleep — nothing concerning stands out yet.');
+      suggestions.push(
+        'Keep logging meals and sleep. Nothing in your recent data stands out — consider hydration, ' +
+          'inner-ear causes, or a clinician visit if symptoms persist.',
+      );
     }
 
-    return { severity, escalated: severity === 'high', factors, suggestions };
+    return { severity, escalated: severity === 'high', insufficientEvidence, factors, suggestions };
   }
 
   protected severityBadgeClass(severity: AnalysisResult['severity']): string {
@@ -170,4 +203,5 @@ export class SymptomInsight {
     }
   }
 }
+
 
