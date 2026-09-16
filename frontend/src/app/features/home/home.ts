@@ -1,9 +1,53 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { Auth } from '../../core/auth';
 import { Consent } from '../../core/consent';
 import { NavBar } from '../../shared/nav-bar/nav-bar';
 import { SymptomInsight } from './symptom-insight/symptom-insight';
+
+type QuickActionId = 'meal' | 'lab' | 'trends';
+
+interface StagedItem {
+  id: string;
+  kind: 'meal' | 'lab';
+  label: string;
+  addedAt: Date;
+}
+
+interface TrendMetric {
+  metric: string;
+  verdict: 'stable' | 'improving' | 'worsening';
+  detail: string;
+}
+
+// Mocked per-profile trend verdicts — a real backend computes these
+// deterministically in trend_agent from historic metrics_store readings.
+const TREND_MOCKS: Record<string, TrendMetric[]> = {
+  'demo-user': [
+    { metric: 'Glucose', verdict: 'worsening', detail: 'Trending up over the last 90 days, now in the prediabetic range.' },
+    { metric: 'Sleep', verdict: 'worsening', detail: 'Averaging under 6h/night for 2 of the last 3 weeks.' },
+    { metric: 'Weight', verdict: 'stable', detail: 'Within \u00b12% over the trend window.' },
+    { metric: 'Stress', verdict: 'worsening', detail: 'Meeting density up on most workdays this month.' },
+  ],
+  'hypertension-user': [
+    { metric: 'Glucose', verdict: 'stable', detail: 'Consistently within normal range.' },
+    { metric: 'Sleep', verdict: 'stable', detail: 'Averaging 6–7h/night, consistent with prior months.' },
+    { metric: 'Weight', verdict: 'stable', detail: 'Within \u00b12% over the trend window.' },
+    { metric: 'Stress', verdict: 'worsening', detail: 'Elevated meeting load flagged by the calendar connector.' },
+  ],
+  'healthy-baseline-user': [
+    { metric: 'Glucose', verdict: 'stable', detail: 'Consistently within normal range.' },
+    { metric: 'Sleep', verdict: 'improving', detail: 'Averaging 7.5h+/night, trending upward.' },
+    { metric: 'Weight', verdict: 'stable', detail: 'Within \u00b12% over the trend window.' },
+    { metric: 'Stress', verdict: 'stable', detail: 'No elevated signal detected.' },
+  ],
+  'family-history-user': [
+    { metric: 'Glucose', verdict: 'stable', detail: 'Consistently within normal range.' },
+    { metric: 'Sleep', verdict: 'stable', detail: 'Averaging 6.5–7h/night, consistent with prior months.' },
+    { metric: 'Weight', verdict: 'stable', detail: 'Within \u00b12% over the trend window.' },
+    { metric: 'Stress', verdict: 'stable', detail: 'No elevated signal detected.' },
+  ],
+};
 
 interface PipelineStage {
   name: string;
@@ -110,11 +154,55 @@ export class Home {
     { stage: 'Prediction engine + Critic', model: 'gpt-4o' },
   ];
 
-  protected readonly quickActions = [
-    { icon: '🍽️', title: 'Log a meal', description: 'Attach a photo or describe what you ate today.' },
-    { icon: '🧪', title: 'Upload a lab report', description: 'Extract readings for glucose, lipids, and more.' },
-    { icon: '📈', title: 'View trends', description: 'See glucose, sleep, and stress trends over time.' },
+  protected readonly quickActions: { id: QuickActionId; icon: string; title: string; description: string }[] = [
+    { id: 'meal', icon: '🍽️', title: 'Log a meal', description: 'Attach a photo or describe what you ate today.' },
+    { id: 'lab', icon: '🧪', title: 'Upload a lab report', description: 'Extract readings for glucose, lipids, and more.' },
+    { id: 'trends', icon: '📈', title: 'View trends', description: 'See glucose, sleep, and stress trends over time.' },
   ];
+
+  protected readonly activePanel = signal<QuickActionId | null>(null);
+  protected readonly mealText = signal('');
+  protected readonly stagedItems = signal<StagedItem[]>([]);
+  protected readonly trends = computed(() => TREND_MOCKS[this.auth.currentUsername() ?? ''] ?? TREND_MOCKS['demo-user']);
+
+  protected toggleAction(id: QuickActionId): void {
+    this.activePanel.set(this.activePanel() === id ? null : id);
+  }
+
+  protected addMeal(): void {
+    const text = this.mealText().trim();
+    if (!text) return;
+    this.stagedItems.set([
+      ...this.stagedItems(),
+      { id: crypto.randomUUID(), kind: 'meal', label: text, addedAt: new Date() },
+    ]);
+    this.mealText.set('');
+  }
+
+  protected onLabFileSelected(event: Event): void {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    this.stagedItems.set([
+      ...this.stagedItems(),
+      { id: crypto.randomUUID(), kind: 'lab', label: file.name, addedAt: new Date() },
+    ]);
+    (event.target as HTMLInputElement).value = '';
+  }
+
+  protected removeStagedItem(id: string): void {
+    this.stagedItems.set(this.stagedItems().filter((item) => item.id !== id));
+  }
+
+  protected trendBadgeClass(verdict: TrendMetric['verdict']): string {
+    switch (verdict) {
+      case 'improving':
+        return 'bg-emerald-100 text-emerald-700';
+      case 'worsening':
+        return 'bg-red-100 text-red-700';
+      case 'stable':
+        return 'bg-slate-100 text-slate-600';
+    }
+  }
 
   protected kindBadgeClass(kind: PipelineStage['kind']): string {
     switch (kind) {

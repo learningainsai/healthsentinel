@@ -21,10 +21,12 @@
 
   <!-- Quick actions -->
   <section class="grid gap-4 sm:grid-cols-3">
-    @for (action of quickActions; track action.title) {
+    @for (action of quickActions; track action.id) {
       <button
         type="button"
-        class="group flex flex-col items-start gap-2 rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-md"
+        (click)="toggleAction(action.id)"
+        class="group flex flex-col items-start gap-2 rounded-xl border p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+        [class]="activePanel() === action.id ? 'border-teal-400 bg-teal-50' : 'border-slate-200 bg-white hover:border-teal-300'"
       >
         <span class="text-2xl">{{ action.icon }}</span>
         <span class="font-semibold text-slate-900">{{ action.title }}</span>
@@ -32,6 +34,78 @@
       </button>
     }
   </section>
+
+  @if (activePanel() === 'meal') {
+    <section class="rounded-xl border border-teal-200 bg-white p-5 shadow-sm">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Log a meal</h2>
+      <div class="mt-3 flex flex-col gap-3 sm:flex-row">
+        <input
+          type="text"
+          [value]="mealText()"
+          (input)="mealText.set($any($event.target).value)"
+          placeholder="e.g. Grilled chicken, rice, and steamed broccoli"
+          class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+        />
+        <button
+          type="button"
+          [disabled]="!mealText().trim()"
+          (click)="addMeal()"
+          class="h-10 shrink-0 rounded-lg bg-teal-600 px-4 text-sm font-semibold text-white shadow transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Add to today's queue
+        </button>
+      </div>
+    </section>
+  }
+
+  @if (activePanel() === 'lab') {
+    <section class="rounded-xl border border-teal-200 bg-white p-5 shadow-sm">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Upload a lab report</h2>
+      <input
+        type="file"
+        accept=".pdf,.png,.jpg,.jpeg,.txt"
+        (change)="onLabFileSelected($event)"
+        class="mt-3 block text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-teal-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-teal-700"
+      />
+    </section>
+  }
+
+  @if (activePanel() === 'trends') {
+    <section class="rounded-xl border border-teal-200 bg-white p-5 shadow-sm">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Trends (last 90 days)</h2>
+      <ul class="mt-3 space-y-2">
+        @for (t of trends(); track t.metric) {
+          <li class="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 p-3 text-sm">
+            <span class="font-medium text-slate-800">{{ t.metric }}</span>
+            <span class="rounded-full px-2 py-0.5 text-xs font-medium" [class]="trendBadgeClass(t.verdict)">{{ t.verdict }}</span>
+            <span class="w-full text-slate-500 sm:w-auto sm:flex-1 sm:px-3">{{ t.detail }}</span>
+          </li>
+        }
+      </ul>
+    </section>
+  }
+
+  @if (stagedItems().length > 0) {
+    <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">
+        Today's queue ({{ stagedItems().length }})
+      </h2>
+      <ul class="mt-3 space-y-2">
+        @for (item of stagedItems(); track item.id) {
+          <li class="flex items-center justify-between gap-3 rounded-lg bg-slate-50 p-3 text-sm">
+            <span>{{ item.kind === 'meal' ? '🍽️' : '🧪' }} {{ item.label }}</span>
+            <button
+              type="button"
+              (click)="removeStagedItem(item.id)"
+              class="rounded-md px-2 py-1 text-xs text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+            >
+              🗑
+            </button>
+          </li>
+        }
+      </ul>
+    </section>
+  }
 
   <app-symptom-insight />
 
