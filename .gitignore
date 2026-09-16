@@ -9,8 +9,10 @@ docs/html/
 .DS_Store
 uv.lock
 *.egg-info/
-.agents/
-.claude/
+
+# Streamlit agent skills (environment-specific symlinks) — keep committed skill folders
+.agents/skills/developing-with-streamlit
+.claude/skills/developing-with-streamlit
 
 # Day-end intake queue — runtime data, not source
 data/staging/
