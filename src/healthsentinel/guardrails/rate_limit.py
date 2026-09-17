@@ -77,6 +77,21 @@ def is_physiologically_invalid(metric_name: str, value: float) -> str | None:
         "calories": (0, 15000),
         "sleep_hours": (0, 24),
         "weight_kg": (config.WEIGHT_MIN_KG, config.WEIGHT_MAX_KG),
+        "height_cm": (50.0, 250.0),
+        "bmi": (10.0, 80.0),
+        "hba1c_pct": (2.0, 20.0),
+        "total_cholesterol_mgdl": (50.0, 500.0),
+        "ldl_mgdl": (0.0, 400.0),
+        "hdl_mgdl": (0.0, 150.0),
+        "triglycerides_mgdl": (10.0, 2000.0),
+        "sodium_meq_l": (100.0, 170.0),
+        "potassium_meq_l": (2.0, 8.0),
+        "creatinine_mgdl": (0.1, 15.0),
+        "magnesium_mgdl": (0.5, 5.0),
+        "vitamin_b12_pgml": (0.0, 2000.0),
+        "ferritin_ngml": (0.0, 1000.0),
+        "blood_pressure_systolic_mmhg": (60.0, 260.0),
+        "blood_pressure_diastolic_mmhg": (30.0, 150.0),
     }
     lo, hi = bounds.get(metric_name, (None, None))
     if lo is None:

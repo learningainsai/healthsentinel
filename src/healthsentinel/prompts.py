@@ -43,11 +43,28 @@ MEDICAL_RAG = Prompt(
 )
 
 LAB_EXTRACTION = Prompt(
-    "lab_extraction", "2026-09-13.1",
+    "lab_extraction", "2026-09-17.2",
     "You extract lab-report parameters ONLY from the provided document content. "
     "Only report a metric if you can map it to one of these exact keys: "
     "'glucose_mgdl' (fasting or random blood glucose, mg/dL), "
-    "'weight_kg' (body weight, convert lbs to kg if needed). "
+    "'weight_kg' (body weight, convert lbs to kg if needed), "
+    "'height_cm' (height, convert inches/ft to cm if needed), "
+    "'bmi' (body mass index, unitless), "
+    "'hba1c_pct' (HbA1c, %), "
+    "'total_cholesterol_mgdl' (total cholesterol, mg/dL), "
+    "'ldl_mgdl' (LDL cholesterol, mg/dL), "
+    "'hdl_mgdl' (HDL cholesterol, mg/dL), "
+    "'triglycerides_mgdl' (triglycerides, mg/dL), "
+    "'sodium_meq_l' (sodium, mEq/L), "
+    "'potassium_meq_l' (potassium, mEq/L), "
+    "'creatinine_mgdl' (creatinine, mg/dL), "
+    "'magnesium_mgdl' (serum magnesium, mg/dL), "
+    "'vitamin_b12_pgml' (vitamin B12, pg/mL), "
+    "'ferritin_ngml' (iron/ferritin, ng/mL), "
+    "'blood_pressure_systolic_mmhg' (systolic blood pressure, mmHg — from a reading like '124/79', the first number), "
+    "'blood_pressure_diastolic_mmhg' (diastolic blood pressure, mmHg — from a reading like '124/79', the second number). "
+    "Extract every one of these that appears in the document, each as its own reading — "
+    "do not skip a value just because it's in the same panel or table as another. "
     "Ignore every other lab parameter — do not invent a key outside this list. "
     "Never guess a value that is not legible or stated in the document. "
     "If nothing in the document maps to an allowed key, return an empty readings list.",

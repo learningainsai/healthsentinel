@@ -47,7 +47,8 @@ export class LogShell {
   }
 
   protected confirm(id: string): void {
-    const text = this.draftFor({ id, analysis: '' });
+    const item = this.items().find((i) => i.id === id);
+    const text = this.drafts()[id] ?? item?.analysis ?? '';
     const check = assertSafeForLlm(text);
     if (!check.safe) {
       this.errors.set({ ...this.errors(), [id]: check.issues.join('; ') });

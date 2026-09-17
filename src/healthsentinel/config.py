@@ -114,7 +114,13 @@ WEIGHT_MAX_KG = 300.0
 
 # Only these lab-extracted metrics are ever persisted; an LLM-proposed metric
 # name outside this allowlist is dropped, never written to the store.
-ALLOWED_LAB_METRICS = {"glucose_mgdl", "weight_kg"}
+ALLOWED_LAB_METRICS = {
+    "glucose_mgdl", "weight_kg", "height_cm", "bmi", "hba1c_pct",
+    "total_cholesterol_mgdl", "ldl_mgdl", "hdl_mgdl", "triglycerides_mgdl",
+    "sodium_meq_l", "potassium_meq_l", "creatinine_mgdl", "magnesium_mgdl",
+    "vitamin_b12_pgml", "ferritin_ngml",
+    "blood_pressure_systolic_mmhg", "blood_pressure_diastolic_mmhg",
+}
 
 TREND_WINDOW_DAYS = 90            # "over the last 3 months"
 TREND_MIN_SAMPLES = 3             # fewer readings than this -> insufficient_data, no verdict
