@@ -64,12 +64,20 @@ def recommendation_agent(state: dict) -> dict:
     if not prediction.get("predictions"):
         return {"recommendation_result": {"recommendations": []}, "audit_log": []}
 
+    human_message = (
+        f"Predictions: {prediction}\nAllergies to avoid: {allergies}\n"
+        f"Has an active gym subscription (from SMS signals): {has_gym_subscription}"
+    )
+    if state.get("prediction_reviewed_text"):
+        human_message += (
+            f"\n\nHuman-reviewed prediction summary (authoritative, prefer over the raw data above):\n"
+            f"{state['prediction_reviewed_text']}"
+        )
+
     try:
         call = call_structured(
             "mid", RecommendationResult,
-            [("system", RECOMMENDATION.text),
-             ("human", f"Predictions: {prediction}\nAllergies to avoid: {allergies}\n"
-                       f"Has an active gym subscription (from SMS signals): {has_gym_subscription}")],
+            [("system", RECOMMENDATION.text), ("human", human_message)],
             run_id=run_id, prompt_version=RECOMMENDATION.version,
         )
         result: RecommendationResult = call.parsed

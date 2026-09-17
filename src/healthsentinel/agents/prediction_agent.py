@@ -40,6 +40,16 @@ def prediction_agent(state: dict) -> dict:
         f"Calendar/stress: {calendar}\nKnown conditions: {profile.get('conditions', [])}\n"
         f"Historic trends (already computed deterministically — phrase, don't recompute): {trend_context}"
     )
+    # Human-reviewed/edited stage summaries (already prompt-injection scanned)
+    # take precedence over the raw dicts above when present (review requirement:
+    # every LLM stage's human-reviewed output must reach the next stage).
+    for key, review_label in (
+        ("nutrition_reviewed_text", "Human-reviewed nutrition summary"),
+        ("medical_reviewed_text", "Human-reviewed medical context"),
+        ("lab_reviewed_text", "Human-reviewed lab report"),
+    ):
+        if state.get(key):
+            context_text += f"\n\n{review_label} (authoritative, prefer over the raw data above):\n{state[key]}"
 
     try:
         call = call_structured(

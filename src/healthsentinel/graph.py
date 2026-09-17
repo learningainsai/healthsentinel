@@ -39,6 +39,17 @@ from .guardrails.verifier import verify
 from .logging_utils import log_event
 from .memory import store as mem
 from .memory.store import GLOBAL_STORE
+from .review_checkpoints import (
+    human_edit_checkpoint,
+    summarize_critic,
+    summarize_insight,
+    summarize_lab,
+    summarize_medical,
+    summarize_nutrition,
+    summarize_prediction,
+    summarize_recommendation,
+    summarize_vision,
+)
 from .state import HealthState
 
 NUTRITIONIST_REVIEW_SLA_HOURS = {"CRITICAL": 2, "HIGH": 8, "MEDIUM": 24, "LOW": 24}
@@ -170,6 +181,7 @@ def nutritionist_review_node(state: HealthState) -> dict:
     sla_hours = NUTRITIONIST_REVIEW_SLA_HOURS.get(severity, 24)
 
     decision = interrupt({
+        "kind": "nutritionist_review",
         "reason": "nutritionist_review_required",
         "review_reasons": reasons,
         "severity": severity,
@@ -196,6 +208,59 @@ def route_after_review(state: HealthState) -> str:
         return "finalize"
     stage = state.get("review_stage", "pre_recommendation")
     return "critic_agent" if stage == "post_verifier" else "recommendation_agent"
+
+
+# --- mandatory per-stage human-edit review nodes -----------------------------
+# One node per LLM-generated output (guardrails doc: no LLM output reaches the
+# next stage, or the final report, without a human review/edit pass whose
+# text has also cleared the deterministic prompt-injection scanner).
+
+def vision_review_node(state: HealthState) -> dict:
+    text = summarize_vision(state.get("vision_result") or {})
+    return human_edit_checkpoint(state, stage="vision", label="Meal photo — identified food", content=text)
+
+
+def nutrition_review_node(state: HealthState) -> dict:
+    text = summarize_nutrition(state.get("nutrition_result") or {})
+    return human_edit_checkpoint(state, stage="nutrition", label="Meal nutrition summary", content=text)
+
+
+def parallel_llm_review_node(state: HealthState) -> dict:
+    """Reviews the two LLM-touched parallel-branch outputs (medical RAG
+    context, lab report extraction) sequentially in a single node -- avoids
+    needing to resolve multiple concurrent interrupts across parallel graph
+    branches, since both fan-out branches have already completed by the time
+    this node (placed after the trend_agent fan-in) runs."""
+    medical_text = summarize_medical(state.get("medical_context") or {})
+    lab_text = summarize_lab(state.get("lab_report_result") or {})
+    medical_update = human_edit_checkpoint(state, stage="medical", label="Medical document context", content=medical_text)
+    lab_update = human_edit_checkpoint(state, stage="lab", label="Lab report summary", content=lab_text)
+    return {
+        **medical_update,
+        **lab_update,
+        "audit_log": medical_update.get("audit_log", []) + lab_update.get("audit_log", []),
+        "guardrail_flags": medical_update.get("guardrail_flags", []) + lab_update.get("guardrail_flags", []),
+    }
+
+
+def prediction_review_node(state: HealthState) -> dict:
+    text = summarize_prediction(state.get("prediction_result") or {})
+    return human_edit_checkpoint(state, stage="prediction", label="Prediction results", content=text)
+
+
+def recommendation_review_node(state: HealthState) -> dict:
+    text = summarize_recommendation(state.get("recommendation_result") or {})
+    return human_edit_checkpoint(state, stage="recommendation", label="Recommendations", content=text)
+
+
+def critic_output_review_node(state: HealthState) -> dict:
+    text = summarize_critic(state.get("critic_review") or {})
+    return human_edit_checkpoint(state, stage="critic", label="Critic review", content=text)
+
+
+def insight_review_node(state: HealthState) -> dict:
+    text = summarize_insight(state.get("insight_notes") or [])
+    return human_edit_checkpoint(state, stage="insight", label="AI observations", content=text)
 
 
 def finalize(state: HealthState) -> dict:
@@ -225,12 +290,23 @@ def finalize(state: HealthState) -> dict:
         lines.append(f"- **Missing (not staged today):** {', '.join(intake.get('missing', [])) or 'none'}\n")
     if medical.get("refused"):
         lines.append("_Medical document context was unavailable — this report was generated without it._\n")
-    if predictions:
+
+    # Every section below prefers the human-reviewed/edited text (already
+    # scanned for prompt injection) over the raw agent output, when a review
+    # checkpoint ran this turn — the edited version is what gets stored.
+    if state.get("prediction_reviewed_text"):
+        lines.append("### Predictions (human-reviewed)")
+        lines.append(state["prediction_reviewed_text"])
+    elif predictions:
         lines.append("### Predictions")
         for p in predictions:
             lines.append(f"- **{p['category']}** ({p['confidence']:.0%} confidence, severity {p['severity']}): "
                          f"{p['statement']}\n  - _Why:_ {p['explanation']}")
-    if recs:
+
+    if state.get("recommendation_reviewed_text"):
+        lines.append("\n### Recommendations (human-reviewed)")
+        lines.append(state["recommendation_reviewed_text"])
+    elif recs:
         lines.append("\n### Recommendations")
         for r in recs:
             lines.append(f"- **{r['title']}** — {r['detail']} _(data: {r['data_support']})_")
@@ -241,17 +317,37 @@ def finalize(state: HealthState) -> dict:
     # verdict is now consumed: surfaced to the user and folded into run status
     # (review §1/§7 — a critic finding is no longer silently discarded).
     critic_flagged = bool(critic) and not critic.get("passed", True)
-    if critic_flagged:
+    if state.get("critic_reviewed_text"):
+        lines.append(f"\n> _Advisory (human-reviewed, non-blocking):_ {state['critic_reviewed_text']}")
+    elif critic_flagged:
         critic_issues = "; ".join(critic.get("issues", [])) or critic.get("summary", "unspecified")
         lines.append(f"\n> _Advisory (non-blocking): the reviewer critic flagged items for follow-up: {critic_issues}_")
 
     # Cross-metric insight notes are advisory-only and clearly labeled as such —
     # they never influenced severity, guardrail flags, or run_status above.
     insight_notes = state.get("insight_notes") or []
-    if insight_notes:
+    if state.get("insight_reviewed_text"):
+        lines.append("\n### AI observations (advisory, non-clinical, human-reviewed)")
+        lines.append(state["insight_reviewed_text"])
+    elif insight_notes:
         lines.append("\n### AI observations (advisory, non-clinical)")
         for note in insight_notes:
             lines.append(f"- {note}")
+
+    # Earlier-stage reviewed summaries (vision/nutrition/medical/lab) don't
+    # otherwise surface in the report body above — append them so every
+    # human-reviewed stage this run is actually part of what gets stored.
+    early_stage_summaries = [
+        ("Meal photo", state.get("vision_reviewed_text")),
+        ("Meal nutrition", state.get("nutrition_reviewed_text")),
+        ("Medical document context", state.get("medical_reviewed_text")),
+        ("Lab report", state.get("lab_reviewed_text")),
+    ]
+    early_stage_summaries = [(label, text) for label, text in early_stage_summaries if text]
+    if early_stage_summaries:
+        lines.append("\n### Human-reviewed stage summaries")
+        for label, text in early_stage_summaries:
+            lines.append(f"**{label}:**\n{text}\n")
 
     report = "\n".join(lines)
     final_report = append_disclaimer(report)
@@ -287,20 +383,27 @@ def build_graph():
     graph.add_node("rate_limit_gate", rate_limit_gate)
     graph.add_node("intake_agent", intake_agent)
     graph.add_node("vision_agent", vision_agent)
+    graph.add_node("vision_review", vision_review_node)
     graph.add_node("nutrition_agent", nutrition_agent)
+    graph.add_node("nutrition_review", nutrition_review_node)
     graph.add_node("medical_rag_agent", medical_rag_agent)
     graph.add_node("activity_agent", activity_agent)
     graph.add_node("sms_agent", sms_agent)
     graph.add_node("calendar_agent", calendar_agent)
     graph.add_node("lab_report_agent", lab_report_agent)
     graph.add_node("trend_agent", trend_agent)
+    graph.add_node("parallel_llm_review", parallel_llm_review_node)
     graph.add_node("prediction_agent", prediction_agent)
+    graph.add_node("prediction_review", prediction_review_node)
     graph.add_node("guardrail_gate", guardrail_gate)
     graph.add_node("nutritionist_review", nutritionist_review_node)
     graph.add_node("recommendation_agent", recommendation_agent)
+    graph.add_node("recommendation_review", recommendation_review_node)
     graph.add_node("guardrail_verifier", guardrail_verifier_node)
     graph.add_node("critic_agent", critic_agent)
+    graph.add_node("critic_output_review", critic_output_review_node)
     graph.add_node("insight_agent", insight_agent)
+    graph.add_node("insight_review", insight_review_node)
     graph.add_node("finalize", finalize)
 
     graph.set_entry_point("consent_gate")
@@ -312,37 +415,46 @@ def build_graph():
     # intake_agent turns the day-end staging queue into meal_text_entry /
     # lab_report_text / activity_notes / etc. before any downstream agent runs.
     graph.add_edge("intake_agent", "vision_agent")
-    graph.add_edge("vision_agent", "nutrition_agent")
+    graph.add_edge("vision_agent", "vision_review")
+    graph.add_edge("vision_review", "nutrition_agent")
+    graph.add_edge("nutrition_agent", "nutrition_review")
 
     # Fan-out: the "3 parallel agents" from the guardrails doc (+ sms_agent for
     # gym/meal-timing/health signals, + lab_report_agent for historic metrics).
-    graph.add_edge("nutrition_agent", "medical_rag_agent")
-    graph.add_edge("nutrition_agent", "activity_agent")
-    graph.add_edge("nutrition_agent", "sms_agent")
-    graph.add_edge("nutrition_agent", "calendar_agent")
-    graph.add_edge("nutrition_agent", "lab_report_agent")
+    graph.add_edge("nutrition_review", "medical_rag_agent")
+    graph.add_edge("nutrition_review", "activity_agent")
+    graph.add_edge("nutrition_review", "sms_agent")
+    graph.add_edge("nutrition_review", "calendar_agent")
+    graph.add_edge("nutrition_review", "lab_report_agent")
 
     # Fan-in: trend_agent (deterministic) waits for all five, then classifies
     # historic glucose/weight/sleep trends before prediction_agent ever runs.
+    # parallel_llm_review reviews the two LLM-touched branches (medical, lab)
+    # sequentially, once all parallel branches have already completed.
     graph.add_edge("medical_rag_agent", "trend_agent")
     graph.add_edge("activity_agent", "trend_agent")
     graph.add_edge("sms_agent", "trend_agent")
     graph.add_edge("calendar_agent", "trend_agent")
     graph.add_edge("lab_report_agent", "trend_agent")
-    graph.add_edge("trend_agent", "prediction_agent")
+    graph.add_edge("trend_agent", "parallel_llm_review")
+    graph.add_edge("parallel_llm_review", "prediction_agent")
+    graph.add_edge("prediction_agent", "prediction_review")
 
-    graph.add_edge("prediction_agent", "guardrail_gate")
+    graph.add_edge("prediction_review", "guardrail_gate")
     graph.add_conditional_edges("guardrail_gate", route_after_guardrail,
                                  {"nutritionist_review": "nutritionist_review", "recommendation_agent": "recommendation_agent"})
     graph.add_conditional_edges("nutritionist_review", route_after_review,
                                  {"finalize": "finalize", "recommendation_agent": "recommendation_agent",
                                   "critic_agent": "critic_agent"})
 
-    graph.add_edge("recommendation_agent", "guardrail_verifier")
+    graph.add_edge("recommendation_agent", "recommendation_review")
+    graph.add_edge("recommendation_review", "guardrail_verifier")
     graph.add_conditional_edges("guardrail_verifier", route_after_verifier,
                                  {"nutritionist_review": "nutritionist_review", "critic_agent": "critic_agent"})
-    graph.add_edge("critic_agent", "insight_agent")
-    graph.add_edge("insight_agent", "finalize")
+    graph.add_edge("critic_agent", "critic_output_review")
+    graph.add_edge("critic_output_review", "insight_agent")
+    graph.add_edge("insight_agent", "insight_review")
+    graph.add_edge("insight_review", "finalize")
     graph.add_edge("finalize", END)
 
     return graph.compile(checkpointer=GLOBAL_CHECKPOINTER, store=GLOBAL_STORE)

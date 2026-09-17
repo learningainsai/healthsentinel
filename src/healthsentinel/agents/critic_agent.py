@@ -24,6 +24,14 @@ def critic_agent(state: dict) -> dict:
         "guardrail_flags": state.get("guardrail_flags", []),
         "profile": state.get("profile"),
     }
+    # Human-reviewed/edited summaries (already prompt-injection scanned) take
+    # precedence over the raw dicts above when present.
+    reviewed = {
+        k: state[k] for k in ("prediction_reviewed_text", "recommendation_reviewed_text", "medical_reviewed_text")
+        if state.get(k)
+    }
+    if reviewed:
+        payload["human_reviewed_summaries"] = reviewed
     try:
         call = call_structured(
             "reasoning", CriticReview,

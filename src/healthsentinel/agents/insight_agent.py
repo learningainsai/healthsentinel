@@ -34,6 +34,11 @@ def insight_agent(state: dict) -> dict:
         f"Calendar/stress: {state.get('calendar_result')}\n"
         f"SMS-confirmed signals: {state.get('sms_confirmed')}"
     )
+    if state.get("nutrition_reviewed_text"):
+        context_text += (
+            f"\n\nHuman-reviewed nutrition summary (authoritative, prefer over the raw data above):\n"
+            f"{state['nutrition_reviewed_text']}"
+        )
 
     try:
         call = call_structured(

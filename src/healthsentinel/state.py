@@ -48,6 +48,18 @@ class HealthState(TypedDict, total=False):
     verifier_passed: bool
     verifier_issues: Annotated[list[str], operator.add]
 
+    # --- mandatory human-edit review checkpoints (one per LLM stage) -----------
+    # Each holds the user-reviewed/edited, prompt-injection-scanned text that
+    # downstream agents and the final report must prefer over the raw dict.
+    vision_reviewed_text: str
+    nutrition_reviewed_text: str
+    medical_reviewed_text: str
+    lab_reviewed_text: str
+    prediction_reviewed_text: str
+    recommendation_reviewed_text: str
+    critic_reviewed_text: str
+    insight_reviewed_text: str
+
     # --- guardrail state -------------------------------------------------------
     guardrail_flags: Annotated[list[str], operator.add]
     severity: str

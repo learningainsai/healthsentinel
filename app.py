@@ -286,7 +286,7 @@ if run_clicked:
                 status.update(label="Consent + rate-limit gates...")
                 result = graph.invoke(initial_state, config=config)
                 if result.get("__interrupt__"):
-                    status.update(label="Paused — nutritionist review required", state="complete")
+                    status.update(label="Paused — human review required", state="complete")
                 else:
                     status.update(label="Analysis complete", state="complete")
                 st.session_state.result = result
@@ -310,26 +310,49 @@ if result:
 
     interrupts = result.get("__interrupt__")
     if interrupts:
-        st.subheader("\U0001F9D1\u200D\u2695\uFE0F Human-in-the-loop: Nutritionist review required")
         payload = interrupts[0].value
-        st.warning(f"Severity: **{payload.get('severity')}** — SLA: review within {payload.get('sla_hours')}h")
-        st.write("Reasons:", payload.get("review_reasons"))
-        st.json(payload.get("prediction_result"))
+        kind = payload.get("kind", "nutritionist_review")
 
-        col1, col2, col3 = st.columns(3)
-        decision = None
-        if col1.button("\u2705 Approve"):
-            decision = {"type": "approve"}
-        if col2.button("\u270F\uFE0F Modify (send back for coaching-agent revision)"):
-            decision = {"type": "modify"}
-        if col3.button("\u274C Reject"):
-            decision = {"type": "reject"}
-        if decision:
-            with st.spinner("Resuming pipeline..."):
-                st.session_state.result = graph.invoke(Command(resume=decision), config=config)
-            reporting.write_report()
-            reporting.print_report()
-            st.rerun()
+        if kind == "human_edit":
+            st.subheader(f"\U0001F4DD Review required: {payload.get('label', payload.get('stage'))}")
+            st.caption(
+                "Every LLM stage output must be reviewed (and may be edited) before it moves on to the "
+                "next stage or is stored in the final report. Edits are re-checked for prompt-injection "
+                "patterns before they're accepted."
+            )
+            if payload.get("error"):
+                st.error(f"Your last edit was rejected: {payload['error']}. Please revise and try again.")
+            edited_text = st.text_area(
+                "Editable output", value=payload.get("content", ""), height=200, key=f"edit_{payload.get('stage')}",
+            )
+            if st.button("\u2705 Confirm & Continue"):
+                with st.spinner("Validating and resuming pipeline..."):
+                    st.session_state.result = graph.invoke(
+                        Command(resume={"edited_text": edited_text}), config=config,
+                    )
+                reporting.write_report()
+                reporting.print_report()
+                st.rerun()
+        else:
+            st.subheader("\U0001F9D1\u200D\u2695\uFE0F Human-in-the-loop: Nutritionist review required")
+            st.warning(f"Severity: **{payload.get('severity')}** — SLA: review within {payload.get('sla_hours')}h")
+            st.write("Reasons:", payload.get("review_reasons"))
+            st.json(payload.get("prediction_result"))
+
+            col1, col2, col3 = st.columns(3)
+            decision = None
+            if col1.button("\u2705 Approve"):
+                decision = {"type": "approve"}
+            if col2.button("\u270F\uFE0F Modify (send back for coaching-agent revision)"):
+                decision = {"type": "modify"}
+            if col3.button("\u274C Reject"):
+                decision = {"type": "reject"}
+            if decision:
+                with st.spinner("Resuming pipeline..."):
+                    st.session_state.result = graph.invoke(Command(resume=decision), config=config)
+                reporting.write_report()
+                reporting.print_report()
+                st.rerun()
     else:
         predictions = (result.get("prediction_result") or {}).get("predictions", [])
         risk = (result.get("prediction_result") or {}).get("risk_dashboard")
