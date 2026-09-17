@@ -6,6 +6,8 @@ gives every downstream guardrail check a stable field to validate.
 """
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -169,3 +171,30 @@ class TextClassification(BaseModel):
     medical: str = Field(default="", description="Portion about medical conditions/symptoms/history, empty if none")
     sms: str = Field(default="", description="Portion about gym/food-delivery/health-related messages, empty if none")
     calendar: str = Field(default="", description="Portion about schedule/meetings/stress, empty if none")
+
+
+class AskClassification(BaseModel):
+    """Closed-set routing for the free-form Ask Sentinel question."""
+    category: Literal[
+        "symptom", "sleep", "nutrition", "lab", "stress", "activity", "medication", "other"
+    ]
+    needs_more_details: bool = Field(
+        description="True when the question is too vague to safely cross-check against health data"
+    )
+    reason: str = Field(description="Brief explanation of why the question belongs to this category")
+
+
+class AskFactor(BaseModel):
+    category: Literal[
+        "sleep_debt", "low_magnesium", "late_night_meals", "lab_flag", "elevated_stress"
+    ]
+    detail: str
+    source: str
+    confidence: Literal["confirmed", "suggestive"]
+
+
+class AskAnalysis(BaseModel):
+    severity: Literal["low", "medium", "high"]
+    factors: list[AskFactor] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+    insufficient_evidence: bool = False
