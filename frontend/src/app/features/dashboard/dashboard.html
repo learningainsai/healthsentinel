@@ -54,10 +54,41 @@
     </div>
   </section>
 
+  <!-- Health trends: always-visible home-page snapshot of where the user -->
+  <!-- stands on each tracked parameter vs. a healthy adult's expected range, -->
+  <!-- plus a brief plain-language write-up of the gap. Full detail (and any -->
+  <!-- required human review) still lives behind Run Analysis. -->
+  <section class="pt-2">
+    <div class="flex items-center gap-2">
+      <app-icon name="analysis" class="h-5 w-5 text-teal-600" />
+      <h2 class="text-lg font-semibold text-slate-900">Your health trends</h2>
+    </div>
+    <p class="mt-2 max-w-3xl text-sm text-slate-600">{{ healthNarrative() }}</p>
+
+    <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      @for (m of healthMetrics(); track m.metric) {
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-sm font-semibold text-slate-800">{{ m.metric }}</span>
+            <app-badge [tone]="metricTone(m.verdict)">{{ m.verdict }}</app-badge>
+          </div>
+          <p class="mt-2 text-xl font-bold text-slate-900">{{ m.current }}</p>
+          <p class="mt-0.5 text-xs text-slate-500">Healthy range: {{ m.healthyRange }}</p>
+          <p class="mt-2 text-xs leading-snug text-slate-500">{{ m.detail }}</p>
+        </div>
+      }
+    </div>
+
+    <a routerLink="/analysis" class="mt-3 inline-flex items-center gap-1 text-sm font-medium text-teal-700 hover:underline">
+      See full analysis &amp; recommendations <app-icon name="arrow-right" class="h-3.5 w-3.5" />
+    </a>
+  </section>
+
   <!-- Quick actions: asymmetric bento grid, tile size = priority, accent -->
   <!-- color per category so the grid is scannable at a glance. -->
   <section class="pt-2">
     <h2 class="mb-3 text-lg font-semibold text-slate-900">Quick actions</h2>
+
     <div class="grid gap-4 sm:grid-cols-3">
       @for (link of quickLinks; track link.path) {
         <a

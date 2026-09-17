@@ -1,14 +1,9 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { Auth } from '../../core/auth';
+import { HEALTH_METRICS, HealthMetric, metricTone } from '../../core/health-metrics';
 import { assertSafeForLlm } from '../../core/prompt-safety';
 import { Staging } from '../../core/staging';
 import { Badge, BadgeTone } from '../../shared/ui/badge/badge';
-
-interface TrendMetric {
-  metric: string;
-  verdict: 'stable' | 'improving' | 'worsening';
-  detail: string;
-}
 
 type ReviewStageId = 'medical' | 'prediction' | 'nutritionist' | 'recommendation' | 'critic' | 'insight';
 
@@ -42,37 +37,6 @@ export interface FinalReportData {
 }
 
 
-// Mocked per-profile trend verdicts — a real backend computes these
-// deterministically in trend_agent from historic metrics_store readings.
-// Moved here from the old monolithic home.ts: trends are an analysis
-// *output*, not a logging action, so they belong on the Run Analysis screen.
-const TREND_MOCKS: Record<string, TrendMetric[]> = {
-  'demo-user': [
-    { metric: 'Glucose', verdict: 'worsening', detail: 'Trending up over the last 90 days, now in the prediabetic range.' },
-    { metric: 'Sleep', verdict: 'worsening', detail: 'Averaging under 6h/night for 2 of the last 3 weeks.' },
-    { metric: 'Weight', verdict: 'stable', detail: 'Within ±2% over the trend window.' },
-    { metric: 'Stress', verdict: 'worsening', detail: 'Meeting density up on most workdays this month.' },
-  ],
-  'hypertension-user': [
-    { metric: 'Glucose', verdict: 'stable', detail: 'Consistently within normal range.' },
-    { metric: 'Sleep', verdict: 'stable', detail: 'Averaging 6–7h/night, consistent with prior months.' },
-    { metric: 'Weight', verdict: 'stable', detail: 'Within ±2% over the trend window.' },
-    { metric: 'Stress', verdict: 'worsening', detail: 'Elevated meeting load flagged by the calendar connector.' },
-  ],
-  'healthy-baseline-user': [
-    { metric: 'Glucose', verdict: 'stable', detail: 'Consistently within normal range.' },
-    { metric: 'Sleep', verdict: 'improving', detail: 'Averaging 7.5h+/night, trending upward.' },
-    { metric: 'Weight', verdict: 'stable', detail: 'Within ±2% over the trend window.' },
-    { metric: 'Stress', verdict: 'stable', detail: 'No elevated signal detected.' },
-  ],
-  'family-history-user': [
-    { metric: 'Glucose', verdict: 'stable', detail: 'Consistently within normal range.' },
-    { metric: 'Sleep', verdict: 'stable', detail: 'Averaging 6.5–7h/night, consistent with prior months.' },
-    { metric: 'Weight', verdict: 'stable', detail: 'Within ±2% over the trend window.' },
-    { metric: 'Stress', verdict: 'stable', detail: 'No elevated signal detected.' },
-  ],
-};
-
 @Component({
   imports: [Badge],
   selector: 'app-analysis',
@@ -85,7 +49,7 @@ export class Analysis {
   protected readonly items = this.staging.items;
   protected readonly isRunning = signal(false);
   protected readonly hasRun = signal(false);
-  protected readonly trends = computed(() => TREND_MOCKS[this.auth.currentUsername() ?? ''] ?? TREND_MOCKS['demo-user']);
+  protected readonly trends = computed(() => HEALTH_METRICS[this.auth.currentUsername() ?? ''] ?? HEALTH_METRICS['demo-user']);
 
   // Mandatory human-edit review checkpoint state — one step per LLM stage,
   // mirroring the real backend's graph.py review_checkpoints (see
@@ -305,15 +269,8 @@ export class Analysis {
     );
   }
 
-  protected trendTone(verdict: TrendMetric['verdict']): BadgeTone {
-    switch (verdict) {
-      case 'improving':
-        return 'emerald';
-      case 'worsening':
-        return 'red';
-      case 'stable':
-        return 'slate';
-    }
+  protected trendTone(verdict: HealthMetric['verdict']): BadgeTone {
+    return metricTone(verdict);
   }
 }
 

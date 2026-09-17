@@ -2,7 +2,9 @@ import { Component, computed, inject } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { Auth } from '../../core/auth';
+import { CONDITION_CONTEXT, HEALTH_METRICS, buildHealthNarrative, metricTone } from '../../core/health-metrics';
 import { Staging } from '../../core/staging';
+import { Badge } from '../../shared/ui/badge/badge';
 import { Icon, IconName } from '../../shared/ui/icon/icon';
 
 type Accent = 'amber' | 'rose' | 'sky' | 'violet' | 'teal';
@@ -39,7 +41,7 @@ const ACCENT_CLASSES: Record<Accent, { tile: string; icon: string }> = {
 };
 
 @Component({
-  imports: [RouterLink, DatePipe, Icon],
+  imports: [RouterLink, DatePipe, Icon, Badge],
   selector: 'app-dashboard',
   templateUrl: './dashboard.html',
 })
@@ -52,4 +54,17 @@ export class Dashboard {
   protected readonly accentClasses = ACCENT_CLASSES;
   protected readonly queueCount = computed(() => this.staging.items().length);
   protected readonly lastRunAt = this.staging.lastRunAt;
+
+  // Health trends summary: same mock metric data shown after Run Analysis
+  // (core/health-metrics.ts), surfaced here as an always-visible home-page
+  // snapshot of where the user stands vs. a healthy adult's expected range.
+  protected readonly healthMetrics = computed(() => HEALTH_METRICS[this.auth.currentUsername() ?? ''] ?? HEALTH_METRICS['demo-user']);
+  protected readonly healthNarrative = computed(() =>
+    buildHealthNarrative(
+      this.account()?.displayName ?? 'You',
+      this.healthMetrics(),
+      CONDITION_CONTEXT[this.auth.currentUsername() ?? ''],
+    ),
+  );
+  protected readonly metricTone = metricTone;
 }
