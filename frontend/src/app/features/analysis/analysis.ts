@@ -1,7 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { Auth } from '../../core/auth';
 import { assertSafeForLlm } from '../../core/prompt-safety';
-import { Staging, StagedItem } from '../../core/staging';
+import { Staging } from '../../core/staging';
 import { Badge, BadgeTone } from '../../shared/ui/badge/badge';
 
 interface TrendMetric {
@@ -10,7 +10,7 @@ interface TrendMetric {
   detail: string;
 }
 
-type ReviewStageId = 'nutrition' | 'medical' | 'prediction' | 'nutritionist' | 'recommendation' | 'critic' | 'insight';
+type ReviewStageId = 'medical' | 'prediction' | 'nutritionist' | 'recommendation' | 'critic' | 'insight';
 
 interface ReviewStep {
   id: ReviewStageId;
@@ -19,7 +19,6 @@ interface ReviewStep {
 }
 
 const STAGE_LABELS: Record<ReviewStageId, string> = {
-  nutrition: 'Meal nutrition summary',
   medical: 'Medical document context',
   prediction: 'Prediction results',
   nutritionist: 'Nutritionist review',
@@ -27,6 +26,20 @@ const STAGE_LABELS: Record<ReviewStageId, string> = {
   critic: 'Critic review',
   insight: 'AI observations',
 };
+
+export interface FinalReportSection {
+  title: string;
+  bullets: string[];
+  intro?: string;
+}
+
+export interface FinalReportData {
+  predictions?: FinalReportSection;
+  recommendations?: FinalReportSection;
+  critic?: { passed: boolean; text: string };
+  insight?: FinalReportSection;
+  loggedEntries: { icon: string; label: string; analysis: string }[];
+}
 
 
 // Mocked per-profile trend verdicts — a real backend computes these
@@ -87,10 +100,14 @@ export class Analysis {
   protected readonly reviewedSummaries = signal<Partial<Record<ReviewStageId, string>>>({});
   protected readonly severity = signal<'LOW' | 'MEDIUM' | 'HIGH'>('LOW');
   protected readonly rejected = signal(false);
-  protected readonly finalReport = signal<string | null>(null);
+  protected readonly finalReport = signal<FinalReportData | null>(null);
 
   protected readonly currentStep = computed(() => this.reviewQueue()[this.currentIndex()] ?? null);
+  protected readonly allReviewed = this.staging.allReviewed;
   private readonly blockedRecommendations = signal<string[]>([]);
+  // Snapshot of confirmed staged entries taken at run start (before the
+  // queue is cleared) so the final report can show what was actually used.
+  private loggedEntriesSnapshot: { icon: string; label: string; analysis: string }[] = [];
 
   protected remove(id: string): void {
     this.staging.remove(id);
@@ -101,14 +118,21 @@ export class Analysis {
   }
 
   protected runAnalysis(): void {
-    if (this.items().length === 0 || this.isRunning()) return;
+    if (this.items().length === 0 || this.isRunning() || !this.allReviewed()) return;
     this.isRunning.set(true);
     this.hasRun.set(false);
     this.finalReport.set(null);
     this.rejected.set(false);
     this.reviewedSummaries.set({});
+    this.loggedEntriesSnapshot = this.items().map((i) => ({
+      icon: this.kindIcon(i.kind),
+      label: i.label,
+      analysis: i.analysis,
+    }));
     // Simulated pipeline latency (intake → nutrition/lab/activity agents →
     // trend agent → prediction/critic) before the first review checkpoint.
+    // The confirmed per-entry analyses (reviewed in Log Data) are the only
+    // input this pipeline ever reads -- never the raw, unconfirmed draft.
     setTimeout(() => {
       this.isRunning.set(false);
       const queue = this.buildReviewQueue();
@@ -157,35 +181,29 @@ export class Analysis {
 
   private finalizeReport(): void {
     const s = this.reviewedSummaries();
-    const lines: string[] = ['## Daily Health Sentinel Report'];
-    if (s.prediction) lines.push('', '### Predictions (human-reviewed)', s.prediction);
-    if (s.recommendation) lines.push('', '### Recommendations (human-reviewed)', s.recommendation);
-    if (s.critic) lines.push('', `> Advisory (human-reviewed, non-blocking): ${s.critic}`);
-    if (s.insight) lines.push('', '### AI observations (advisory, non-clinical, human-reviewed)', s.insight);
+    const report: FinalReportData = { loggedEntries: this.loggedEntriesSnapshot };
+    if (s.prediction) report.predictions = this.toSection('Predictions', s.prediction);
+    if (s.recommendation) report.recommendations = this.toSection('Recommendations', s.recommendation);
+    if (s.critic) report.critic = { passed: !s.critic.includes('ISSUES FOUND'), text: s.critic };
+    if (s.insight) report.insight = this.toSection('AI observations', s.insight);
 
-    const earlyStages: [string, string | undefined][] = [
-      ['Meal nutrition', s.nutrition],
-      ['Medical document context', s.medical],
-    ];
-    const early = earlyStages.filter(([, text]) => !!text);
-    if (early.length) {
-      lines.push('', '### Human-reviewed stage summaries');
-      for (const [label, text] of early) lines.push(`**${label}:** ${text}`);
-    }
-
-    this.finalReport.set(lines.join('\n'));
+    this.finalReport.set(report);
     this.reviewQueue.set([]);
     this.staging.markRun();
     this.staging.clear();
     this.hasRun.set(true);
   }
 
+  /** Splits a "Label:\n- bullet\n- bullet" mock string into a display section. */
+  private toSection(title: string, text: string): FinalReportSection {
+    const lines = text.split('\n').filter((l) => l.trim());
+    const bullets = lines.filter((l) => l.trim().startsWith('-')).map((l) => l.replace(/^-\s*/, ''));
+    const intro = lines.find((l) => !l.trim().startsWith('-') && !l.trim().endsWith(':'));
+    return { title, bullets, intro };
+  }
+
   private buildReviewQueue(): ReviewStep[] {
     const steps: ReviewStep[] = [];
-    const mealItem = this.items().find((i) => i.kind === 'meal');
-    if (mealItem) {
-      steps.push({ id: 'nutrition', label: STAGE_LABELS.nutrition, content: this.summarizeNutrition(mealItem) });
-    }
     steps.push({ id: 'medical', label: STAGE_LABELS.medical, content: this.summarizeMedical() });
     steps.push({ id: 'prediction', label: STAGE_LABELS.prediction, content: this.summarizePrediction() });
 
@@ -201,22 +219,20 @@ export class Analysis {
     return steps;
   }
 
-  private summarizeNutrition(item: StagedItem): string {
-    return (
-      `Meal nutrition summary — Calories: ~450 kcal, Protein: ~30g, Carbs: ~55g, Fat: ~12g, ` +
-      `Fiber: ~6g, Magnesium: ~140mg (estimated from: "${item.label}")`
-    );
-  }
-
   private summarizeMedical(): string {
     const account = this.auth.currentAccount();
     const conditions = account?.conditions?.length ? account.conditions.join(', ') : 'no known conditions on file';
     const allergies = account?.allergies?.length ? account.allergies.join(', ') : 'no known allergies on file';
+    const loggedNote = this.loggedEntriesSnapshot.length
+      ? `\nConfirmed entries considered: ${this.loggedEntriesSnapshot.map((e) => e.label).join(', ')}.`
+      : '';
     return (
-      `Medical context: Known conditions: ${conditions}. Known allergies: ${allergies}.\n` +
-      `Citations: medical_history.md, blood_report_latest.md`
+      `Medical context: Known conditions: ${conditions}. Known allergies: ${allergies}.` +
+      loggedNote +
+      `\nCitations: medical_history.md, blood_report_latest.md`
     );
   }
+
 
   private summarizePrediction(): string {
     const worsening = this.trends().filter((t) => t.verdict === 'worsening');

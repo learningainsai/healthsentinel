@@ -1,10 +1,16 @@
 <div class="relative min-h-screen bg-slate-50">
-  <!-- Decorative background wash: soft blurred brand-color blobs fixed in the -->
-  <!-- page corners so wide viewports don't read as empty margins. -->
-  <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-    <div class="absolute -top-32 -left-32 h-96 w-96 rounded-full bg-teal-200/40 blur-3xl"></div>
-    <div class="absolute top-1/3 -right-40 h-[28rem] w-[28rem] rounded-full bg-emerald-200/40 blur-3xl"></div>
-    <div class="absolute -bottom-40 left-1/4 h-96 w-96 rounded-full bg-teal-100/50 blur-3xl"></div>
+  <!-- Decorative background: bigger, more saturated mesh-gradient blobs plus a -->
+  <!-- faint dot-grid texture, so wide viewports read as an intentional wash -->
+  <!-- instead of a faint smudge in the corner. -->
+  <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-slate-50">
+    <div
+      class="absolute inset-0 opacity-[0.4]"
+      style="background-image: radial-gradient(circle, #94a3b8 1px, transparent 1px); background-size: 22px 22px;"
+    ></div>
+    <div class="absolute -top-40 -left-40 h-[32rem] w-[32rem] rounded-full bg-teal-300/50 blur-3xl"></div>
+    <div class="absolute top-1/4 -right-48 h-[34rem] w-[34rem] rounded-full bg-emerald-300/45 blur-3xl"></div>
+    <div class="absolute bottom-[-12rem] left-1/3 h-[30rem] w-[30rem] rounded-full bg-sky-200/50 blur-3xl"></div>
+    <div class="absolute bottom-0 right-1/4 h-80 w-80 rounded-full bg-amber-200/40 blur-3xl"></div>
   </div>
 
   <app-nav-bar />

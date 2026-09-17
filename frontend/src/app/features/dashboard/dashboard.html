@@ -1,74 +1,81 @@
-<main class="mx-auto max-w-6xl space-y-8 px-6 py-8">
-  <!-- Hero: healthy-meal photography behind a brand gradient wash, so the -->
-  <!-- banner tells the app's story (nutrition + health tracking) rather than -->
-  <!-- being a flat color block. Photo: unsplash.com/photos/KD3XqquHlcc -->
-  <section class="relative overflow-hidden rounded-2xl text-white shadow-lg">
-    <img
-      src="https://images.unsplash.com/photo-1542814880-7e62cf14b7c8?auto=format&fit=crop&w=1600&q=80"
-      alt=""
-      class="absolute inset-0 h-full w-full object-cover"
-    />
-    <div class="absolute inset-0 bg-gradient-to-br from-teal-700/95 via-teal-600/90 to-emerald-500/70"></div>
-    <div class="relative px-8 py-10">
-      <p class="text-sm font-medium uppercase tracking-wide text-teal-100">Welcome back</p>
-      <h1 class="mt-1 text-3xl font-bold">{{ account()?.displayName }}</h1>
-      <p class="mt-2 max-w-2xl text-teal-50/90">{{ account()?.summary }}</p>
-      <div class="mt-5 flex flex-wrap gap-2">
-        @for (condition of account()?.conditions; track condition) {
-          <span class="rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur-sm">{{ condition }}</span>
-        }
-        @for (allergy of account()?.allergies; track allergy) {
-          <span class="rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur-sm">⚠ {{ allergy }} allergy</span>
-        }
-        @if (!account()?.conditions?.length && !account()?.allergies?.length) {
-          <span class="rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur-sm">No known conditions or allergies</span>
+<main class="mx-auto max-w-6xl space-y-6 px-6 py-8">
+  <!-- Hero: healthy-meal photography, overlay lightened so the photo actually -->
+  <!-- reads, with two glassmorphic stat tiles overlapping its bottom edge. -->
+  <section class="relative">
+    <div class="relative h-56 overflow-hidden rounded-2xl text-white shadow-lg sm:h-52">
+      <img
+        src="https://images.unsplash.com/photo-1542814880-7e62cf14b7c8?auto=format&fit=crop&w=1600&q=80"
+        alt=""
+        class="absolute inset-0 h-full w-full object-cover"
+      />
+      <div class="absolute inset-0 bg-gradient-to-r from-teal-700/80 via-teal-700/40 to-transparent"></div>
+      <div class="absolute inset-0 bg-gradient-to-t from-teal-800/50 via-transparent to-transparent"></div>
+      <div class="relative px-8 py-8">
+        <p class="text-sm font-medium uppercase tracking-wide text-teal-50">Welcome back</p>
+        <h1 class="mt-1 text-3xl font-bold drop-shadow-sm">{{ account()?.displayName }}</h1>
+        <p class="mt-2 max-w-md text-teal-50/95 drop-shadow-sm">{{ account()?.summary }}</p>
+        <div class="mt-5 flex flex-wrap gap-2">
+          @for (condition of account()?.conditions; track condition) {
+            <span class="rounded-full bg-white/20 px-3 py-1 text-xs font-medium backdrop-blur-sm">{{ condition }}</span>
+          }
+          @for (allergy of account()?.allergies; track allergy) {
+            <span class="rounded-full bg-white/20 px-3 py-1 text-xs font-medium backdrop-blur-sm">⚠ {{ allergy }} allergy</span>
+          }
+          @if (!account()?.conditions?.length && !account()?.allergies?.length) {
+            <span class="rounded-full bg-white/20 px-3 py-1 text-xs font-medium backdrop-blur-sm">No known conditions or allergies</span>
+          }
+        </div>
+      </div>
+    </div>
+
+    <!-- Overlapping glass stat cards -->
+    <div class="relative -mt-8 grid gap-4 px-4 sm:grid-cols-2 sm:px-8">
+      <div class="rounded-xl border border-white/60 bg-white/80 p-4 shadow-lg backdrop-blur-md">
+        <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <app-icon name="queue" class="h-4 w-4 text-teal-600" />
+          Staged queue
+        </div>
+        <p class="mt-1 text-4xl font-bold text-slate-900">{{ queueCount() }}</p>
+        <a routerLink="/analysis" class="mt-1 inline-flex items-center gap-1 text-sm font-medium text-teal-700 hover:underline">
+          Run analysis <app-icon name="arrow-right" class="h-3.5 w-3.5" />
+        </a>
+      </div>
+      <div class="rounded-xl border border-white/60 bg-white/80 p-4 shadow-lg backdrop-blur-md">
+        <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <app-icon name="clock" class="h-4 w-4 text-violet-600" />
+          Last analysis
+        </div>
+        @if (lastRunAt(); as t) {
+          <p class="mt-1 text-2xl font-bold text-slate-900">{{ t | date: 'MMM d, h:mm a' }}</p>
+        } @else {
+          <p class="mt-1 text-2xl font-bold text-slate-400">Not run yet</p>
         }
       </div>
     </div>
   </section>
 
-  <!-- Today at a glance -->
-  <section class="grid gap-4 sm:grid-cols-2">
-    <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Staged queue</h2>
-      <p class="mt-2 text-2xl font-bold text-slate-900">{{ queueCount() }} item{{ queueCount() === 1 ? '' : 's' }}</p>
-      <p class="mt-1 text-sm text-slate-500">
-        Meals, lab reports and activity entries waiting to be run through analysis.
-      </p>
-      <a routerLink="/analysis" class="mt-3 inline-block text-sm font-medium text-teal-700 hover:underline">
-        Go to Run Analysis →
-      </a>
-    </div>
-    <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Last analysis</h2>
-      @if (lastRunAt(); as t) {
-        <p class="mt-2 text-2xl font-bold text-slate-900">{{ t | date: 'MMM d, h:mm a' }}</p>
-        <p class="mt-1 text-sm text-slate-500">View the latest trends and recommendations.</p>
-      } @else {
-        <p class="mt-2 text-2xl font-bold text-slate-900">Not run yet</p>
-        <p class="mt-1 text-sm text-slate-500">Log some data, then run analysis to see trends.</p>
-      }
-    </div>
-  </section>
-
-  <!-- Quick actions -->
-  <section>
+  <!-- Quick actions: asymmetric bento grid, tile size = priority, accent -->
+  <!-- color per category so the grid is scannable at a glance. -->
+  <section class="pt-2">
     <h2 class="mb-3 text-lg font-semibold text-slate-900">Quick actions</h2>
-    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div class="grid gap-4 sm:grid-cols-3">
       @for (link of quickLinks; track link.path) {
         <a
           [routerLink]="link.path"
-          class="group flex flex-col items-start gap-2 rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-md"
+          [class]="accentClasses[link.accent].tile + ' ' + link.span"
+          class="group flex flex-col items-start gap-3 rounded-xl border p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
         >
-          <span class="text-2xl">{{ link.icon }}</span>
+          <span [class]="accentClasses[link.accent].icon" class="flex h-10 w-10 items-center justify-center rounded-lg text-white">
+            <app-icon [name]="link.icon" class="h-5 w-5" />
+          </span>
           <span class="font-semibold text-slate-900">{{ link.title }}</span>
-          <span class="text-sm text-slate-500">{{ link.description }}</span>
+          <span class="text-sm text-slate-600">{{ link.description }}</span>
         </a>
       }
     </div>
   </section>
 
-  <footer class="rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 text-xs text-slate-500">
+  <footer class="rounded-xl border border-slate-200 bg-white/70 px-5 py-4 text-xs text-slate-500 backdrop-blur-sm">
     This is a UI prototype for the Health Sentinel multi-agent pipeline. It is not a substitute for
     professional medical advice.
   </footer>
