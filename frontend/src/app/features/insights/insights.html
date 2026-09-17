@@ -1,0 +1,54 @@
+<main class="mx-auto max-w-5xl space-y-6 px-6 py-8">
+  <div>
+    <h1 class="text-2xl font-semibold text-slate-900">Health Trends &amp; Recommendations</h1>
+    <p class="mt-1 text-sm text-slate-500">
+      A graphical look at every tracked parameter for {{ account()?.displayName }}, each paired with a specific
+      recommendation for where you stand vs. a healthy range.
+    </p>
+  </div>
+
+  <section class="space-y-4">
+    @for (m of metrics(); track m.metric) {
+      <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-base font-semibold text-slate-900">{{ m.metric }}</h2>
+          <app-badge [tone]="metricTone(m.verdict)">{{ m.verdict }}</app-badge>
+        </div>
+
+        <div class="mt-4 grid gap-5 sm:grid-cols-2">
+          <!-- Graphical trend: illustrative sparkline over the ~90-day window. -->
+          <div>
+            <svg [attr.viewBox]="'0 0 ' + chartWidth + ' ' + chartHeight" class="h-16 w-full max-w-xs">
+              <polyline
+                [attr.points]="linePoints(m.series)"
+                fill="none"
+                [attr.stroke]="lineColor(m.verdict)"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <div class="mt-2 flex items-baseline justify-between text-sm">
+              <span class="text-lg font-bold text-slate-900">{{ m.current }}</span>
+            </div>
+            <p class="text-xs text-slate-500">Healthy range: {{ m.healthyRange }}</p>
+            <p class="mt-2 text-xs leading-snug text-slate-500">{{ m.detail }}</p>
+          </div>
+
+          <!-- Recommendation, shown side-by-side with its trend. -->
+          <div
+            class="rounded-lg border p-3 text-sm"
+            [class]="m.verdict === 'worsening' ? 'border-amber-200 bg-amber-50/70 text-amber-900' : 'border-emerald-200 bg-emerald-50/60 text-emerald-900'"
+          >
+            <p class="text-xs font-semibold uppercase tracking-wide opacity-70">Recommendation</p>
+            <p class="mt-1">{{ m.recommendation }}</p>
+          </div>
+        </div>
+      </div>
+    }
+  </section>
+
+  <a routerLink="/analysis" class="inline-flex items-center gap-1 text-sm font-medium text-teal-700 hover:underline">
+    Submit new data through the full review pipeline →
+  </a>
+</main>
