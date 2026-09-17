@@ -12,6 +12,15 @@ technical, compliance, incident-response, monitoring, and human-oversight.
 > iWatch/HealthKit, SMS, Google Calendar) are **simulated** with
 > deterministic synthetic data — no real OAuth/HealthKit/SMS-provider calls are made.
 
+## Ask Sentinel LangGraph flow
+
+The Angular Ask Sentinel experience sends the user's sanitized prompt to the
+guarded local API, which classifies it with a closed-set structured LLM call and
+then runs a LangGraph evidence-synthesis node for supported categories. Vague or
+unsupported prompts return a clarification request instead of a canned answer.
+See [docs/ask_sentinel_langgraph.md](docs/ask_sentinel_langgraph.md) for the
+flow diagram, endpoint, schemas, safety boundaries, and local run commands.
+
 ## Architecture decision: LangGraph vs. Deep Agents
 
 Both are LangChain-ecosystem options; this workspace already has an example of
