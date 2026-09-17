@@ -30,7 +30,7 @@ from healthsentinel.guardrails.medical import KNOWN_ALLERGY_CATEGORIES, MEDICAL_
 from healthsentinel.memory import store as mem  # noqa: E402
 from healthsentinel.rag.vectorstore import build_index, delete_user_documents  # noqa: E402
 from healthsentinel.sms_parser import parse_sms_messages  # noqa: E402
-from healthsentinel.tools.mcp_simulated import sms_inbox  # noqa: E402
+from healthsentinel.tools.mcp_simulated import google_calendar_stress_signals, sms_inbox  # noqa: E402
 from healthsentinel.trends import classify_all  # noqa: E402
 
 st.set_page_config(page_title="Health Sentinel", page_icon="\U0001FA7A", layout="wide")
@@ -209,7 +209,34 @@ if staged_items:
 else:
     st.caption("Nothing staged yet today — add a document or note above.")
 
-st.subheader("4. Simulated SMS signals (optional)")
+st.subheader("4. Simulated calendar signal (optional)")
+st.caption(
+    "Simulated Google Calendar connector: estimates a stress signal from this week's meeting "
+    "density and late-night events. Report any extra late nights a calendar sync wouldn't "
+    "capture on its own (e.g. crunch time on a specific project) — each note deterministically "
+    "adds a late-night event to this run's stress signal, which the prediction engine considers."
+)
+if consent_calendar:
+    baseline = google_calendar_stress_signals(user_id)
+    st.caption(
+        f"This week's baseline: {baseline['meetings_this_week']} meetings, "
+        f"{baseline['late_night_events']} late-night events, stress signal {baseline['stress_indicator']}/10."
+    )
+    calendar_note_text = st.text_area(
+        "Extra late nights / overtime to report",
+        placeholder="e.g. Worked late for the Gen Academy demo the last few days, which cut into my sleep.",
+        key="calendar_note_text",
+    )
+    if st.button("➕ Add calendar note to today's queue", disabled=not calendar_note_text.strip()):
+        staging.add_attachment(
+            user_id, "calendar", "calendar-note.txt",
+            base64.b64encode(calendar_note_text.strip().encode()).decode(), "text/plain",
+        )
+        st.rerun()
+else:
+    st.caption("Calendar connector disabled — enable 'Connect calendar' above to add notes.")
+
+st.subheader("5. Simulated SMS signals (optional)")
 st.caption(
     "Simulated SMS connector: detects meal-timing patterns from food-delivery texts, "
     "gym-subscription payments, and other health-related messages. Review the checkboxes "

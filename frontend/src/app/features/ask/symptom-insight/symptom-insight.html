@@ -40,6 +40,18 @@
     </div>
   }
 
+  @if (needsSymptomDetail()) {
+    <div class="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+      <p class="font-medium">Describe a specific symptom to cross-check against your data.</p>
+      <p class="mt-1 text-xs text-amber-700">
+        This tool looks for a bodily symptom (e.g. "I feel dizzy today", "I've had a headache since
+        this afternoon") and cross-checks it against your recent sleep, nutrition, and lab signals —
+        a general question like this one has nothing to cross-check yet. Try one of the suggestions
+        above, or describe what you're physically feeling.
+      </p>
+    </div>
+  }
+
   @if (result(); as r) {
     <div class="mt-5 space-y-4">
       <div class="flex flex-wrap items-center gap-2">

@@ -75,6 +75,22 @@ const HISTORIC_SNAPSHOTS: Record<string, HistoricSnapshot> = {
 
 const CONCERNING_TERMS = ['dizzy', 'dizziness', 'faint', 'chest pain', 'short of breath', 'palpitation'];
 
+// Words/phrases that indicate an actual symptom description is present. This
+// mock only ever cross-checks a *stated* symptom against the historic
+// snapshot below — a vague question with no symptom in it (e.g. "how is my
+// health looking these days") has nothing for it to cross-check, so it must
+// not silently return the same canned factor list every time regardless of
+// what was typed (that's what made it look broken/not actually reading the
+// query). A real backend would let an LLM classify this instead of a keyword list.
+const SYMPTOM_KEYWORDS = [
+  'dizzy', 'dizziness', 'faint', 'headache', 'head ache', 'migraine', 'tired', 'exhaust',
+  'fatigue', 'sleepy', 'nausea', 'nauseous', 'vomit', 'sick', 'unwell', 'pain', 'ache',
+  'cramp', 'weak', 'weakness', 'palpitation', 'chest', 'breath', 'short of breath',
+  'insomnia', "can't sleep", 'cant sleep', 'stressed', 'anxious', 'anxiety', 'cold',
+  'fever', 'cough', 'sore throat', 'sore', 'stomach', 'gas', 'bloat', 'rash', 'itch',
+  'swelling', 'sweat', 'numb', 'tingling', 'blurry', 'blurred vision',
+];
+
 @Component({
   imports: [],
   selector: 'app-symptom-insight',
@@ -88,6 +104,7 @@ export class SymptomInsight {
   protected readonly isAnalyzing = signal(false);
   protected readonly result = signal<AnalysisResult | null>(null);
   protected readonly refusalIssues = signal<string[] | null>(null);
+  protected readonly needsSymptomDetail = signal(false);
 
   protected readonly factorLabels = FACTOR_LABELS;
 
@@ -100,6 +117,7 @@ export class SymptomInsight {
     if (!raw) return;
 
     this.result.set(null);
+    this.needsSymptomDetail.set(false);
 
     // Client-side mirror of guardrails/prompt_injection.py — a UX layer only,
     // NOT a security boundary (client code is bypassable). The authoritative
@@ -110,6 +128,14 @@ export class SymptomInsight {
       return;
     }
     this.refusalIssues.set(null);
+
+    // Nothing resembling a symptom to cross-check — don't dump the same
+    // canned factor list regardless of what was asked; ask for specifics.
+    const lowerQuestion = check.cleanText.toLowerCase();
+    if (!SYMPTOM_KEYWORDS.some((term) => lowerQuestion.includes(term))) {
+      this.needsSymptomDetail.set(true);
+      return;
+    }
 
     this.isAnalyzing.set(true);
     // Simulated latency to reflect the real pipeline's retrieval + LLM round trip.
