@@ -91,6 +91,10 @@ export class SymptomInsight {
 
   protected readonly factorLabels = FACTOR_LABELS;
 
+  useSuggestion(text: string): void {
+    this.question.set(text);
+  }
+
   protected onAnalyze(): void {
     const raw = this.question().trim();
     if (!raw) return;

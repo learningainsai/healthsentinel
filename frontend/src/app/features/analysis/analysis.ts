@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { Auth } from '../../core/auth';
-import { Staging } from '../../core/staging';
+import { assertSafeForLlm } from '../../core/prompt-safety';
+import { Staging, StagedItem } from '../../core/staging';
 import { Badge, BadgeTone } from '../../shared/ui/badge/badge';
 
 interface TrendMetric {
@@ -8,6 +9,25 @@ interface TrendMetric {
   verdict: 'stable' | 'improving' | 'worsening';
   detail: string;
 }
+
+type ReviewStageId = 'nutrition' | 'medical' | 'prediction' | 'nutritionist' | 'recommendation' | 'critic' | 'insight';
+
+interface ReviewStep {
+  id: ReviewStageId;
+  label: string;
+  content: string;
+}
+
+const STAGE_LABELS: Record<ReviewStageId, string> = {
+  nutrition: 'Meal nutrition summary',
+  medical: 'Medical document context',
+  prediction: 'Prediction results',
+  nutritionist: 'Nutritionist review',
+  recommendation: 'Recommendations',
+  critic: 'Critic review',
+  insight: 'AI observations',
+};
+
 
 // Mocked per-profile trend verdicts — a real backend computes these
 // deterministically in trend_agent from historic metrics_store readings.
@@ -54,6 +74,24 @@ export class Analysis {
   protected readonly hasRun = signal(false);
   protected readonly trends = computed(() => TREND_MOCKS[this.auth.currentUsername() ?? ''] ?? TREND_MOCKS['demo-user']);
 
+  // Mandatory human-edit review checkpoint state — one step per LLM stage,
+  // mirroring the real backend's graph.py review_checkpoints (see
+  // review_checkpoints.py / graph.py): every stage's output must be
+  // reviewed (and may be edited) before the next stage runs or the final
+  // report is stored. Every edit is re-checked with the same
+  // prompt-injection scanner used client-side in Ask Sentinel.
+  protected readonly reviewQueue = signal<ReviewStep[]>([]);
+  protected readonly currentIndex = signal(0);
+  protected readonly editableText = signal('');
+  protected readonly reviewError = signal<string | null>(null);
+  protected readonly reviewedSummaries = signal<Partial<Record<ReviewStageId, string>>>({});
+  protected readonly severity = signal<'LOW' | 'MEDIUM' | 'HIGH'>('LOW');
+  protected readonly rejected = signal(false);
+  protected readonly finalReport = signal<string | null>(null);
+
+  protected readonly currentStep = computed(() => this.reviewQueue()[this.currentIndex()] ?? null);
+  private readonly blockedRecommendations = signal<string[]>([]);
+
   protected remove(id: string): void {
     this.staging.remove(id);
   }
@@ -65,15 +103,190 @@ export class Analysis {
   protected runAnalysis(): void {
     if (this.items().length === 0 || this.isRunning()) return;
     this.isRunning.set(true);
+    this.hasRun.set(false);
+    this.finalReport.set(null);
+    this.rejected.set(false);
+    this.reviewedSummaries.set({});
     // Simulated pipeline latency (intake → nutrition/lab/activity agents →
-    // trend agent → prediction/critic). A real backend would stream stage
-    // progress instead of a flat delay.
+    // trend agent → prediction/critic) before the first review checkpoint.
     setTimeout(() => {
       this.isRunning.set(false);
-      this.hasRun.set(true);
+      const queue = this.buildReviewQueue();
+      this.reviewQueue.set(queue);
+      this.currentIndex.set(0);
+      this.editableText.set(queue[0]?.content ?? '');
+      this.reviewError.set(null);
+    }, 1200);
+  }
+
+  protected confirmStep(): void {
+    const step = this.currentStep();
+    if (!step) return;
+    const check = assertSafeForLlm(this.editableText());
+    if (!check.safe) {
+      this.reviewError.set(check.issues.join('; '));
+      return;
+    }
+    this.reviewError.set(null);
+    this.reviewedSummaries.set({ ...this.reviewedSummaries(), [step.id]: check.cleanText });
+    this.advance();
+  }
+
+  protected decideNutritionist(decision: 'approve' | 'modify' | 'reject'): void {
+    if (decision === 'reject') {
+      this.rejected.set(true);
+      this.reviewQueue.set([]);
       this.staging.markRun();
       this.staging.clear();
-    }, 1200);
+      this.hasRun.set(true);
+      return;
+    }
+    this.advance();
+  }
+
+  private advance(): void {
+    const nextIndex = this.currentIndex() + 1;
+    const queue = this.reviewQueue();
+    if (nextIndex >= queue.length) {
+      this.finalizeReport();
+      return;
+    }
+    this.currentIndex.set(nextIndex);
+    this.editableText.set(queue[nextIndex].content);
+  }
+
+  private finalizeReport(): void {
+    const s = this.reviewedSummaries();
+    const lines: string[] = ['## Daily Health Sentinel Report'];
+    if (s.prediction) lines.push('', '### Predictions (human-reviewed)', s.prediction);
+    if (s.recommendation) lines.push('', '### Recommendations (human-reviewed)', s.recommendation);
+    if (s.critic) lines.push('', `> Advisory (human-reviewed, non-blocking): ${s.critic}`);
+    if (s.insight) lines.push('', '### AI observations (advisory, non-clinical, human-reviewed)', s.insight);
+
+    const earlyStages: [string, string | undefined][] = [
+      ['Meal nutrition', s.nutrition],
+      ['Medical document context', s.medical],
+    ];
+    const early = earlyStages.filter(([, text]) => !!text);
+    if (early.length) {
+      lines.push('', '### Human-reviewed stage summaries');
+      for (const [label, text] of early) lines.push(`**${label}:** ${text}`);
+    }
+
+    this.finalReport.set(lines.join('\n'));
+    this.reviewQueue.set([]);
+    this.staging.markRun();
+    this.staging.clear();
+    this.hasRun.set(true);
+  }
+
+  private buildReviewQueue(): ReviewStep[] {
+    const steps: ReviewStep[] = [];
+    const mealItem = this.items().find((i) => i.kind === 'meal');
+    if (mealItem) {
+      steps.push({ id: 'nutrition', label: STAGE_LABELS.nutrition, content: this.summarizeNutrition(mealItem) });
+    }
+    steps.push({ id: 'medical', label: STAGE_LABELS.medical, content: this.summarizeMedical() });
+    steps.push({ id: 'prediction', label: STAGE_LABELS.prediction, content: this.summarizePrediction() });
+
+    const severity = this.computeSeverity();
+    this.severity.set(severity);
+    if (severity === 'HIGH') {
+      steps.push({ id: 'nutritionist', label: STAGE_LABELS.nutritionist, content: '' });
+    }
+
+    steps.push({ id: 'recommendation', label: STAGE_LABELS.recommendation, content: this.summarizeRecommendation() });
+    steps.push({ id: 'critic', label: STAGE_LABELS.critic, content: this.summarizeCritic() });
+    steps.push({ id: 'insight', label: STAGE_LABELS.insight, content: this.summarizeInsight() });
+    return steps;
+  }
+
+  private summarizeNutrition(item: StagedItem): string {
+    return (
+      `Meal nutrition summary — Calories: ~450 kcal, Protein: ~30g, Carbs: ~55g, Fat: ~12g, ` +
+      `Fiber: ~6g, Magnesium: ~140mg (estimated from: "${item.label}")`
+    );
+  }
+
+  private summarizeMedical(): string {
+    const account = this.auth.currentAccount();
+    const conditions = account?.conditions?.length ? account.conditions.join(', ') : 'no known conditions on file';
+    const allergies = account?.allergies?.length ? account.allergies.join(', ') : 'no known allergies on file';
+    return (
+      `Medical context: Known conditions: ${conditions}. Known allergies: ${allergies}.\n` +
+      `Citations: medical_history.md, blood_report_latest.md`
+    );
+  }
+
+  private summarizePrediction(): string {
+    const worsening = this.trends().filter((t) => t.verdict === 'worsening');
+    if (worsening.length === 0) {
+      return (
+        'Predictions:\n- general_wellness (90% confidence, severity LOW): Overall indicators are ' +
+        'stable — why: no worsening trends detected this period.'
+      );
+    }
+    return (
+      'Predictions:\n' +
+      worsening
+        .map((t) => `- lifestyle_trend (78% confidence, severity MEDIUM): ${t.metric} trend needs attention — why: ${t.detail}`)
+        .join('\n')
+    );
+  }
+
+  private computeSeverity(): 'LOW' | 'MEDIUM' | 'HIGH' {
+    const worseningCount = this.trends().filter((t) => t.verdict === 'worsening').length;
+    return worseningCount >= 2 ? 'HIGH' : worseningCount === 1 ? 'MEDIUM' : 'LOW';
+  }
+
+  private summarizeRecommendation(): string {
+    const account = this.auth.currentAccount();
+    const allergies = new Set((account?.allergies ?? []).map((a) => a.toLowerCase()));
+    const candidates: { title: string; detail: string; allergensIn: string[] }[] = [
+      { title: 'Increase Magnesium Intake', detail: 'Add leafy greens, nuts, and whole grains to your meals this week.', allergensIn: [] },
+      { title: 'Peanut Butter Snack for Magnesium', detail: 'A tablespoon of peanut butter is a good magnesium source.', allergensIn: ['peanuts'] },
+      { title: 'Maintain Healthy Sleep Patterns', detail: 'Keep a consistent bedtime to support your current sleep average.', allergensIn: [] },
+      { title: 'Shellfish-based Omega-3 Boost', detail: 'Shrimp and other shellfish are rich in omega-3s.', allergensIn: ['shellfish'] },
+    ];
+
+    const blocked: string[] = [];
+    const kept = candidates.filter((c) => {
+      const hit = c.allergensIn.find((a) => allergies.has(a));
+      if (hit) {
+        blocked.push(`${c.title} (blocked: contains ${hit})`);
+        return false;
+      }
+      return true;
+    });
+    this.blockedRecommendations.set(blocked);
+    return 'Recommendations:\n' + kept.map((c) => `- ${c.title} — ${c.detail}`).join('\n');
+  }
+
+  private summarizeCritic(): string {
+    const blocked = this.blockedRecommendations();
+    if (blocked.length > 0) {
+      return (
+        `Critic review: ISSUES FOUND (guardrail score 75%)\nThe following recommendation(s) were ` +
+        `correctly blocked by the allergen guardrail before reaching you: ${blocked.join('; ')}`
+      );
+    }
+    return (
+      'Critic review: PASSED (guardrail score 96%)\nNo issues found — recommendations respect all ' +
+      'declared allergies and safety bounds.'
+    );
+  }
+
+  private summarizeInsight(): string {
+    const worsening = this.trends()
+      .filter((t) => t.verdict === 'worsening')
+      .map((t) => t.metric);
+    if (worsening.length === 0) {
+      return 'AI observations (advisory):\n- No concerning cross-metric patterns detected this period.';
+    }
+    return (
+      `AI observations (advisory):\n- Your ${worsening.join(' and ')} trend(s) may be related — ` +
+      `consider reviewing sleep hygiene and stress load together.`
+    );
   }
 
   protected trendTone(verdict: TrendMetric['verdict']): BadgeTone {
@@ -87,3 +300,4 @@ export class Analysis {
     }
   }
 }
+

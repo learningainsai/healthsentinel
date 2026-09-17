@@ -1,9 +1,28 @@
 <main class="mx-auto max-w-4xl space-y-6 px-6 py-8">
-  <div>
-    <h1 class="text-2xl font-semibold text-slate-900">Ask Health Sentinel</h1>
-    <p class="mt-1 text-sm text-slate-500">
-      Describe a symptom and we'll cross-check it against your recent sleep, nutrition and lab data.
-    </p>
+  <div class="flex items-center gap-4">
+    <!-- Friendly assistant avatar — makes this read as a conversation, not a bug-report form. -->
+    <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-600 to-emerald-500 text-2xl shadow-md">
+      🩺
+    </div>
+    <div>
+      <h1 class="text-2xl font-semibold text-slate-900">Ask Health Sentinel</h1>
+      <p class="mt-1 text-sm text-slate-500">
+        Describe a symptom and we'll cross-check it against your recent sleep, nutrition and lab data.
+      </p>
+    </div>
   </div>
-  <app-symptom-insight />
+
+  <div class="flex flex-wrap gap-2">
+    @for (s of suggestions; track s) {
+      <button
+        type="button"
+        (click)="insight.useSuggestion(s)"
+        class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:border-teal-300 hover:text-teal-700"
+      >
+        {{ s }}
+      </button>
+    }
+  </div>
+
+  <app-symptom-insight #insight />
 </main>
