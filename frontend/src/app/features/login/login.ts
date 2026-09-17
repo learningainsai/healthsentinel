@@ -32,7 +32,7 @@ export class Login {
         return;
       }
       this.errorMessage.set('');
-      const destination = this.consent.hasConsented(this.auth.currentUsername()) ? '/home' : '/consent';
+      const destination = this.consent.hasConsented(this.auth.currentUsername()) ? '/dashboard' : '/consent';
       this.router.navigateByUrl(destination);
     });
   }

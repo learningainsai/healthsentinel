@@ -1,0 +1,70 @@
+<main class="mx-auto max-w-4xl space-y-6 px-6 py-8">
+  <div>
+    <h1 class="text-2xl font-semibold text-slate-900">Run Analysis</h1>
+    <p class="mt-1 text-sm text-slate-500">
+      Review what's staged, then submit it through the pipeline to get trends, predictions and recommendations.
+    </p>
+  </div>
+
+  <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">
+      Staged queue ({{ items().length }})
+    </h2>
+    @if (items().length === 0) {
+      <p class="mt-3 text-sm text-slate-400">
+        Nothing staged yet. Head to Log Data to add a meal, lab report, or activity entry.
+      </p>
+    } @else {
+      <ul class="mt-3 space-y-2">
+        @for (item of items(); track item.id) {
+          <li class="flex items-start justify-between gap-2 rounded-lg bg-slate-50 p-3 text-sm">
+            <div class="min-w-0">
+              <span>{{ kindIcon(item.kind) }} {{ item.label }}</span>
+              @if (item.detail) {
+                <p class="mt-0.5 truncate text-xs text-slate-400">{{ item.detail }}</p>
+              }
+            </div>
+            <button
+              type="button"
+              (click)="remove(item.id)"
+              class="shrink-0 rounded-md px-2 py-1 text-xs text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+            >
+              🗑
+            </button>
+          </li>
+        }
+      </ul>
+    }
+
+    <button
+      type="button"
+      [disabled]="items().length === 0 || isRunning()"
+      (click)="runAnalysis()"
+      class="mt-4 h-10 rounded-lg bg-teal-600 px-5 text-sm font-semibold text-white shadow transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {{ isRunning() ? 'Running pipeline…' : 'Run Analysis' }}
+    </button>
+    @if (isRunning()) {
+      <p class="mt-2 text-xs text-slate-400">Intake → Nutrition/Lab/Activity agents → Trend agent → Prediction + Critic…</p>
+    }
+  </section>
+
+  @if (hasRun()) {
+    <section class="rounded-xl border border-teal-200 bg-white p-5 shadow-sm">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Trends (last 90 days)</h2>
+      <ul class="mt-3 space-y-2">
+        @for (t of trends(); track t.metric) {
+          <li class="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 p-3 text-sm">
+            <span class="font-medium text-slate-800">{{ t.metric }}</span>
+            <app-badge [tone]="trendTone(t.verdict)">{{ t.verdict }}</app-badge>
+            <span class="w-full text-slate-500 sm:w-auto sm:flex-1 sm:px-3">{{ t.detail }}</span>
+          </li>
+        }
+      </ul>
+      <p class="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+        Full prediction and recommendation output runs through the guardrail gate and, when flagged,
+        nutritionist review — see About App for the complete pipeline.
+      </p>
+    </section>
+  }
+</main>

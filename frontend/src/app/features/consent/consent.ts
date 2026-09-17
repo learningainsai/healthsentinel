@@ -36,7 +36,7 @@ export class Consent {
         ...this.model(),
         acceptedAt: new Date().toISOString(),
       });
-      this.router.navigateByUrl('/home');
+      this.router.navigateByUrl('/dashboard');
     });
   }
 }
