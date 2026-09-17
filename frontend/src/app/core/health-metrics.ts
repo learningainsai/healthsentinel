@@ -46,6 +46,13 @@ export const HEALTH_METRICS: Record<string, HealthMetric[]> = {
       verdict: 'worsening',
       detail: 'Meeting density up on most workdays this month.',
     },
+    {
+      metric: 'Food pattern',
+      current: 'Frequent high-glycemic snacks',
+      healthyRange: 'Balanced meals, mostly whole foods & fiber',
+      verdict: 'worsening',
+      detail: 'Logged meals over the last 2 weeks skew toward refined carbs and low fiber — consistent with the glucose trend above.',
+    },
   ],
   'hypertension-user': [
     {
@@ -75,6 +82,13 @@ export const HEALTH_METRICS: Record<string, HealthMetric[]> = {
       healthyRange: 'Low–moderate workday load',
       verdict: 'worsening',
       detail: 'Elevated meeting load flagged by the calendar connector.',
+    },
+    {
+      metric: 'Food pattern',
+      current: 'Frequent high-sodium takeout',
+      healthyRange: 'Home-cooked, low-sodium meals (<2000mg/day)',
+      verdict: 'worsening',
+      detail: '3 of the last 7 logged meals were high-sodium takeout — above your physician-recommended sodium ceiling.',
     },
   ],
   'healthy-baseline-user': [
@@ -106,6 +120,13 @@ export const HEALTH_METRICS: Record<string, HealthMetric[]> = {
       verdict: 'stable',
       detail: 'No elevated signal detected.',
     },
+    {
+      metric: 'Food pattern',
+      current: 'Balanced, whole-food meals',
+      healthyRange: 'Balanced meals, mostly whole foods & fiber',
+      verdict: 'improving',
+      detail: 'Logged meals consistently include lean protein, vegetables, and whole grains.',
+    },
   ],
   'family-history-user': [
     {
@@ -136,6 +157,13 @@ export const HEALTH_METRICS: Record<string, HealthMetric[]> = {
       verdict: 'stable',
       detail: 'No elevated signal detected.',
     },
+    {
+      metric: 'Food pattern',
+      current: 'Balanced meals, occasional red meat',
+      healthyRange: 'Balanced meals, mostly whole foods & fiber',
+      verdict: 'stable',
+      detail: 'No concerning pattern detected; consider trimming red-meat frequency given your family heart history.',
+    },
   ],
 };
 
@@ -162,34 +190,45 @@ export function metricTone(verdict: HealthMetric['verdict']): BadgeTone {
   }
 }
 
-/** Builds the "where you stand vs. where you're expected to be" brief for the home page. */
-export function buildHealthNarrative(displayName: string, metrics: HealthMetric[], conditionContext?: string): string {
+export interface HealthNarrative {
+  /** Overall tone driving the callout's color treatment. */
+  tone: 'good' | 'watch';
+  headline: string;
+  detail: string;
+  /** Off-target metric names, rendered as chips under the headline. */
+  watchItems: string[];
+  conditionNote?: string;
+}
+
+/** Builds the styled "where you stand vs. where you're expected to be" brief for the home page. */
+export function buildHealthNarrative(displayName: string, metrics: HealthMetric[], conditionContext?: string): HealthNarrative {
   const worsening = metrics.filter((m) => m.verdict === 'worsening');
   const improving = metrics.filter((m) => m.verdict === 'improving');
   const stable = metrics.filter((m) => m.verdict === 'stable');
 
-  const sentences: string[] = [];
+  const tone: HealthNarrative['tone'] = worsening.length === 0 ? 'good' : 'watch';
+  const headline =
+    tone === 'good'
+      ? `${displayName}, you're on track — all ${metrics.length} tracked parameters are healthy or improving.`
+      : `${displayName}, ${worsening.length} of your ${metrics.length} tracked parameters need attention.`;
 
-  if (worsening.length === 0) {
-    sentences.push(
-      `${displayName}, all ${metrics.length} of your tracked parameters are at or moving toward their healthy range right now.`,
-    );
-  } else {
+  const detailParts: string[] = [];
+  if (worsening.length > 0) {
     const gaps = worsening.map((m) => `${m.metric} (currently ${m.current}, healthy is ${m.healthyRange})`).join('; ');
-    sentences.push(
-      `${displayName}, ${worsening.length} of your ${metrics.length} tracked parameters ${worsening.length === 1 ? 'is' : 'are'} ` +
-        `currently outside the healthy range you'd expect for a low-risk profile: ${gaps}.`,
-    );
+    detailParts.push(`${gaps}.`);
   }
-
   if (improving.length > 0) {
-    sentences.push(`${improving.map((m) => m.metric).join(' and ')} ${improving.length === 1 ? 'is' : 'are'} trending in the right direction.`);
+    detailParts.push(`${improving.map((m) => m.metric).join(' and ')} ${improving.length === 1 ? 'is' : 'are'} trending in the right direction.`);
   }
   if (stable.length > 0 && worsening.length > 0) {
-    sentences.push(`${stable.map((m) => m.metric).join(', ')} remain${stable.length === 1 ? 's' : ''} steady in the meantime.`);
+    detailParts.push(`${stable.map((m) => m.metric).join(', ')} remain${stable.length === 1 ? 's' : ''} steady in the meantime.`);
   }
-  if (conditionContext) {
-    sentences.push(conditionContext);
-  }
-  return sentences.join(' ');
+
+  return {
+    tone,
+    headline,
+    detail: detailParts.join(' '),
+    watchItems: worsening.map((m) => m.metric),
+    conditionNote: conditionContext,
+  };
 }
